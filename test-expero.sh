@@ -96,6 +96,29 @@ for s in $SCENARIOS; do
 done
 
 echo ""
+echo "== T5b: CLAUDE.md template sections carry concrete guidance =="
+# Guard against future template regressions that strip sections back to bare
+# placeholders. Each required section must exist and include at least one
+# example token ("e.g." or "TBD" or "filled in") beyond plain <!-- comments -->.
+REQUIRED_SECTIONS="Project Context|Architecture Rules|Build Commands|Extension Points|Key ADRs|Expero Protocol"
+for s in $SCENARIOS; do
+  claude_md="$TMPDIR/$s/CLAUDE.md"
+  for section in "Project Context" "Build Commands" "Key ADRs"; do
+    if ! grep -qE "^## ${section}$" "$claude_md"; then
+      fail "  $s has ## $section"    "(missing section)"
+      continue
+    fi
+    # pull lines until the next '## '
+    body=$(awk "/^## ${section}\$/{flag=1; next} /^## /{flag=0} flag" "$claude_md")
+    if [ -z "$body" ] || ! echo "$body" | grep -qE "(e\.g\.|TBD|Replace|See |numeric order)"; then
+      fail "  $s '$section' body has concrete guidance" "(body too thin)"
+    else
+      pass "  $s '$section' has guidance"
+    fi
+  done
+done
+
+echo ""
 echo "== T6: status reports correct initial task counts =="
 new_product_status=$(cd "$TMPDIR/new-product" && bash expero.sh status 2>&1)
 echo "$new_product_status" | grep -qE "todo:[[:space:]]+7"    && pass "new-product todo: 7"    || fail "new-product todo: 7"    "(missing)"
