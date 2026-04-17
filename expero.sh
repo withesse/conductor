@@ -916,11 +916,14 @@ EOF
 # ─────────────────────────────────────────
 # Dispatch
 # ─────────────────────────────────────────
-case "$COMMAND" in
-  init)    shift; cmd_init "$@" ;;
-  start)   shift; cmd_start "$@" ;;
-  status)  cmd_status ;;
-  restart) cmd_restart ;;
-  help|-h|--help) cmd_help ;;
-  *) err "Unknown command: $COMMAND"; echo ""; cmd_help; exit 1 ;;
-esac
+# Skip dispatch when sourced (lets test-expero.sh call functions directly).
+if [ "${BASH_SOURCE[0]:-$0}" = "$0" ]; then
+  case "$COMMAND" in
+    init)    shift; cmd_init "$@" ;;
+    start)   shift; cmd_start "$@" ;;
+    status)  cmd_status ;;
+    restart) cmd_restart ;;
+    help|-h|--help) cmd_help ;;
+    *) err "Unknown command: $COMMAND"; echo ""; cmd_help; exit 1 ;;
+  esac
+fi

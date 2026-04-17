@@ -245,6 +245,17 @@ bash expero.sh start archaeologist legacy-M0-001 gemini
 
 - [SPEC.md](./SPEC.md) — 完整框架规范
 - [expero.sh](./expero.sh) — CLI 工具
+- [examples/](./examples/) — 各场景的 init 输出样例
+
+## 开发与测试
+
+`expero.sh` 自带回归测试，修改 CLI 后请先跑一遍：
+
+```bash
+bash test-expero.sh
+```
+
+测试覆盖：help 命令、8 个 scenario 的 `init`、`config.yaml` 模型 ID、extensions 列表、`CLAUDE.md` 角色行、`status` 任务计数、stop signal 检测、`model_for_role` 24 种（3 工具 × 8 role）组合、`restart` 错误处理。
 
 ## FAQ
 
