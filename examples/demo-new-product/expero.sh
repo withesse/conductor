@@ -597,21 +597,43 @@ Expero Agents project (scenario: **$scenario**).
 $roles_line
 
 ## Project Context
-<!-- Fill in: tech stack, architecture, module map -->
+
+<!-- Replace these stubs with real values before starting any role. -->
+
+- **Language / Stack**: e.g. \`TypeScript + Node 20 + Postgres 16\`
+- **Primary module layout**: e.g. \`apps/api\`, \`apps/web\`, \`packages/shared\`
+- **Deployment target**: e.g. \`Vercel / Fly.io / self-hosted Docker\`
+- **External services**: e.g. \`Stripe, Auth0, SendGrid\`
 
 ## Architecture Rules
-<!-- Fill in after ADRs are written -->
 
-## Extension Points
-<!-- Fill in: how to add new modules / APIs -->
+<!-- Summarize the load-bearing ADRs here (max 5-7 bullets). -->
+<!-- Full rationale lives in \`.expero/docs/adr/\`. This section is for quick agent recall. -->
+
+- _No ADRs accepted yet. Architect will populate this after M0._
 
 ## Build Commands
-<!-- Fill in: build / test / lint / deploy commands -->
+
+<!-- Replace stubs with the exact commands agents should run. Used by Verifier and Critic. -->
+
+- Build:    \`<e.g. npm run build>\`
+- Test:     \`<e.g. npm test>\`
+- Lint:     \`<e.g. npm run lint>\`
+- Coverage: \`<e.g. npm run test:coverage>\`
+- Deploy:   \`<filled in at M3>\`
+
+## Extension Points
+
+<!-- Document where new modules / APIs / features plug in. Update as architecture evolves. -->
+
+- _TBD after M0 scaffold._
 
 ## Key ADRs
-<!-- Will be populated as ADRs are written -->
+
+See \`.expero/docs/adr/\`. ADRs load in numeric order; Superseded entries stop applying.
 
 ## Expero Protocol
+
 All framework state lives in \`.expero/docs/\`. Never rely on conversation context for persistence.
 Status values: \`todo\` / \`in-progress\` / \`completed\` / \`blocked\`.
 Stop signals: \`NEEDS_ARCH_REVIEW\`, \`NEEDS_SPEC_CLARIFICATION\`, \`NEEDS_SECURITY_REVIEW\`.
@@ -622,20 +644,63 @@ _gen_agents_md() {
   cat > AGENTS.md << 'EOF'
 # Agents Protocol (for non-Claude tools)
 
+This file is the equivalent of CLAUDE.md for tools that do not auto-load
+a harness config (Codex, Gemini CLI, Continue, Aider, etc.). Load it
+manually at session start.
+
 ## Mandatory First Steps
 1. Read CLAUDE.md
 2. Read .expero/docs/roadmap.md
 3. Read relevant .expero/docs/adr/ (if exists)
 
 ## Shared State Protocol
-All state must be written to .expero/docs/. Do not rely on context for persistence.
-Task status values: todo / in-progress / completed / blocked.
+All state must be written to .expero/docs/. Do not rely on context for
+persistence. Task status values: todo / in-progress / completed / blocked.
 Complete tasks by updating roadmap.md task status to "completed".
 
-## Stop Conditions
-- Architecture issue not covered by ADR: write NEEDS_ARCH_REVIEW in roadmap.md, halt
-- Spec ambiguity: write NEEDS_SPEC_CLARIFICATION in roadmap.md, halt
-- Security concern: write NEEDS_SECURITY_REVIEW in roadmap.md, halt
+## Role Quick Reference
+
+Every role has a fixed set of files it may write (Owns), must read on
+start (Reads), and must never touch (Never). Violating these boundaries
+is a structural error, not a style issue.
+
+| Role          | Owns (write)                              | Reads (start-up)                      | Never                          |
+|---------------|-------------------------------------------|---------------------------------------|--------------------------------|
+| planner       | vision.md, roadmap.md, specs/*.md         | adr/*                                 | code                           |
+| architect     | adr/*, gap-analysis.md                    | roadmap.md                            | code, reviews                  |
+| builder       | code; roadmap status field for own task   | adr/*, specs/*, specs/*-test-plan.md  | other roles' docs              |
+| verifier      | specs/*-test-plan.md, ci-status.md        | specs/*, code                         | non-test code                  |
+| critic        | review/*.md                               | adr/*, specs/*, git diff              | code                           |
+| sentinel      | security/*.md                             | code, adr/*                           | code                           |
+| scribe        | public/*.md, CHANGELOG.md                 | adr/*, specs/*, code (public API)     | technical decisions            |
+| archaeologist | legacy/*.md, reverse-adr/*                | code                                  | code modifications             |
+
+Full ownership matrix: see SPEC.md §5.3.
+
+## Stop Signal Syntax
+
+When a role hits an issue outside its authority, it MUST halt and write
+a stop signal into the Notes column (last column) of its row in
+.expero/docs/roadmap.md. Example:
+
+    | M0-001 | Auth flow | in-progress | builder | — | NEEDS_ARCH_REVIEW: JWT library undecided |
+
+Valid signals (must be UPPERCASE with underscores):
+
+- NEEDS_ARCH_REVIEW         — architecture question not covered by any ADR
+- NEEDS_SPEC_CLARIFICATION  — spec ambiguity blocks implementation
+- NEEDS_SECURITY_REVIEW     — security-relevant change requires Sentinel
+- BLOCKED_BY_<task-id>      — cannot proceed until another task completes
+
+The Conductor (human) detects pending signals via:
+
+    bash expero.sh status
+    # or manually:
+    grep -E 'NEEDS_|BLOCKED_BY_' .expero/docs/roadmap.md
+
+Resolution: the responsible role (Architect for NEEDS_ARCH_REVIEW, etc.)
+handles the issue, replaces the signal with the keyword suffix _RESOLVED
+(e.g. ARCH_RESOLVED), and the original role resumes.
 EOF
 }
 
@@ -909,18 +974,21 @@ Examples:
   bash expero.sh status
   bash expero.sh restart
 
-Documentation: https://github.com/your-org/expero-agents
+Documentation: https://github.com/withesse/expero-agents
 EOF
 }
 
 # ─────────────────────────────────────────
 # Dispatch
 # ─────────────────────────────────────────
-case "$COMMAND" in
-  init)    shift; cmd_init "$@" ;;
-  start)   shift; cmd_start "$@" ;;
-  status)  cmd_status ;;
-  restart) cmd_restart ;;
-  help|-h|--help) cmd_help ;;
-  *) err "Unknown command: $COMMAND"; echo ""; cmd_help; exit 1 ;;
-esac
+# Skip dispatch when sourced (lets test-expero.sh call functions directly).
+if [ "${BASH_SOURCE[0]:-$0}" = "$0" ]; then
+  case "$COMMAND" in
+    init)    shift; cmd_init "$@" ;;
+    start)   shift; cmd_start "$@" ;;
+    status)  cmd_status ;;
+    restart) cmd_restart ;;
+    help|-h|--help) cmd_help ;;
+    *) err "Unknown command: $COMMAND"; echo ""; cmd_help; exit 1 ;;
+  esac
+fi

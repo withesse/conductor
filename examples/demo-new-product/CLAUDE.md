@@ -1,4 +1,4 @@
-# examples/demo-new-product
+# /Users/zt/zt-all/expero-agents/examples/demo-new-product
 
 Expero Agents project (scenario: **new-product**).
 
@@ -6,21 +6,43 @@ Expero Agents project (scenario: **new-product**).
 - planner, architect, builder, verifier, critic
 
 ## Project Context
-<!-- Fill in: tech stack, architecture, module map -->
+
+<!-- Replace these stubs with real values before starting any role. -->
+
+- **Language / Stack**: e.g. `TypeScript + Node 20 + Postgres 16`
+- **Primary module layout**: e.g. `apps/api`, `apps/web`, `packages/shared`
+- **Deployment target**: e.g. `Vercel / Fly.io / self-hosted Docker`
+- **External services**: e.g. `Stripe, Auth0, SendGrid`
 
 ## Architecture Rules
-<!-- Fill in after ADRs are written -->
 
-## Extension Points
-<!-- Fill in: how to add new modules / APIs -->
+<!-- Summarize the load-bearing ADRs here (max 5-7 bullets). -->
+<!-- Full rationale lives in `.expero/docs/adr/`. This section is for quick agent recall. -->
+
+- _No ADRs accepted yet. Architect will populate this after M0._
 
 ## Build Commands
-<!-- Fill in: build / test / lint / deploy commands -->
+
+<!-- Replace stubs with the exact commands agents should run. Used by Verifier and Critic. -->
+
+- Build:    `<e.g. npm run build>`
+- Test:     `<e.g. npm test>`
+- Lint:     `<e.g. npm run lint>`
+- Coverage: `<e.g. npm run test:coverage>`
+- Deploy:   `<filled in at M3>`
+
+## Extension Points
+
+<!-- Document where new modules / APIs / features plug in. Update as architecture evolves. -->
+
+- _TBD after M0 scaffold._
 
 ## Key ADRs
-<!-- Will be populated as ADRs are written -->
+
+See `.expero/docs/adr/`. ADRs load in numeric order; Superseded entries stop applying.
 
 ## Expero Protocol
+
 All framework state lives in `.expero/docs/`. Never rely on conversation context for persistence.
 Status values: `todo` / `in-progress` / `completed` / `blocked`.
 Stop signals: `NEEDS_ARCH_REVIEW`, `NEEDS_SPEC_CLARIFICATION`, `NEEDS_SECURITY_REVIEW`.
