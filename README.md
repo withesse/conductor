@@ -184,13 +184,15 @@ project/
 
 Expero 是工具无关的。支持矩阵：
 
-| Role | Claude Code | Codex | Gemini |
-|------|-------------|-------|--------|
-| architect | Opus | o3 | 2.5 Pro |
-| planner | Sonnet | o4-mini | 2.5 Flash |
-| builder | Sonnet | o3 / o4-mini | 2.5 Pro |
-| verifier | Haiku | o4-mini | 2.5 Flash |
-| critic | Sonnet | o3 | 2.5 Pro |
+| Role | Claude Code | OpenAI | Gemini |
+|------|-------------|--------|--------|
+| architect     | Opus 4.7   | gpt-5.4-pro  | Gemini 3.1 Pro        |
+| planner       | Sonnet 4.6 | gpt-5.4      | Gemini 3 Flash        |
+| builder       | Sonnet 4.6 | gpt-5.4      | Gemini 3 Flash        |
+| verifier      | Haiku 4.5  | gpt-5.4-mini | Gemini 3.1 Flash-Lite |
+| critic        | Sonnet 4.6 | gpt-5.4      | Gemini 3 Flash        |
+
+> GPT-5.4 已合并原 Codex 系列的编码能力，不再需要为 Rust 单独升级到 reasoning tier。完整映射见 [SPEC §7.1](./SPEC.md#71-支持的工具矩阵)。
 
 混用示例：
 
@@ -199,8 +201,11 @@ Expero 是工具无关的。支持矩阵：
 bash expero.sh start architect
 bash expero.sh start critic M0-001
 
-# Codex 做实现（Rust 项目用 o3）
+# OpenAI 做实现
 bash expero.sh start builder M0-001 codex
+
+# Gemini 做大上下文遗留代码分析（1M token 窗口）
+bash expero.sh start archaeologist legacy-M0-001 gemini
 ```
 
 ## 成本模型

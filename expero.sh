@@ -50,16 +50,48 @@ err()   { echo -e "${RED}✗${NC}  $1" >&2; }
 # ─────────────────────────────────────────
 # Model configuration
 # ─────────────────────────────────────────
-MODEL_OPUS="claude-opus-4-5"
-MODEL_SONNET="claude-sonnet-4-5"
-MODEL_HAIKU="claude-haiku-4-5-20251001"
+# Claude (Anthropic)
+MODEL_CLAUDE_REASONING="claude-opus-4-7"
+MODEL_CLAUDE_EXECUTION="claude-sonnet-4-6"
+MODEL_CLAUDE_TEMPLATE="claude-haiku-4-5-20251001"
 
-model_for_role() {
+# OpenAI (GPT-5.4 series; Codex capabilities merged into mainline from 5.4)
+MODEL_OPENAI_REASONING="gpt-5.4-pro"
+MODEL_OPENAI_EXECUTION="gpt-5.4"
+MODEL_OPENAI_TEMPLATE="gpt-5.4-mini"
+
+# Gemini (Google, 3.x series)
+MODEL_GEMINI_REASONING="gemini-3.1-pro"
+MODEL_GEMINI_EXECUTION="gemini-3-flash"
+MODEL_GEMINI_TEMPLATE="gemini-3.1-flash-lite"
+
+# Map role → tier
+tier_for_role() {
   case "$1" in
-    architect|sentinel|archaeologist) echo "$MODEL_OPUS" ;;
-    planner|builder|critic|scribe)    echo "$MODEL_SONNET" ;;
-    verifier)                          echo "$MODEL_HAIKU" ;;
+    architect|sentinel|archaeologist) echo "reasoning" ;;
+    planner|builder|critic|scribe)    echo "execution" ;;
+    verifier)                          echo "template" ;;
     *) err "Unknown role: $1"; exit 1 ;;
+  esac
+}
+
+# Map (tool, role) → model ID
+model_for_role() {
+  local role=$1
+  local tool=${2:-claude}
+  local tier
+  tier=$(tier_for_role "$role")
+  case "$tool:$tier" in
+    claude:reasoning) echo "$MODEL_CLAUDE_REASONING" ;;
+    claude:execution) echo "$MODEL_CLAUDE_EXECUTION" ;;
+    claude:template)  echo "$MODEL_CLAUDE_TEMPLATE" ;;
+    codex:reasoning)  echo "$MODEL_OPENAI_REASONING" ;;
+    codex:execution)  echo "$MODEL_OPENAI_EXECUTION" ;;
+    codex:template)   echo "$MODEL_OPENAI_TEMPLATE" ;;
+    gemini:reasoning) echo "$MODEL_GEMINI_REASONING" ;;
+    gemini:execution) echo "$MODEL_GEMINI_EXECUTION" ;;
+    gemini:template)  echo "$MODEL_GEMINI_TEMPLATE" ;;
+    *) err "Unknown tool: $tool (supported: claude, codex, gemini)"; exit 1 ;;
   esac
 }
 
@@ -115,24 +147,19 @@ cmd_start() {
   local tool=${3:-claude}
 
   local model
-  model=$(model_for_role "$role")
+  model=$(model_for_role "$role" "$tool")
 
   info "Starting $role (model: $model, tool: $tool)"
 
   local prompt
   prompt=$(_build_prompt "$role" "$task_id")
 
-  if [ "$tool" = "codex" ]; then
-    # Codex uses different model names
-    local codex_model
-    case "$role" in
-      architect|sentinel|archaeologist) codex_model="o3" ;;
-      *) codex_model="o4-mini" ;;
-    esac
-    codex --approval-mode auto-edit --model "$codex_model" "$prompt"
-  else
-    claude --model "$model" "$prompt"
-  fi
+  case "$tool" in
+    claude) claude --model "$model" "$prompt" ;;
+    codex)  codex --approval-mode auto-edit --model "$model" "$prompt" ;;
+    gemini) gemini --model "$model" --yolo --prompt "$prompt" ;;
+    *)      err "Unknown tool: $tool (supported: claude, codex, gemini)"; exit 1 ;;
+  esac
 }
 
 # ─────────────────────────────────────────
@@ -826,21 +853,27 @@ Scenarios:
   multi-service        Multi-service integration
   greenfield-library   New open-source library
 
-Roles:
-  architect    Architecture decisions, ADRs (Opus)
-  planner      Roadmap, task coordination (Sonnet)
-  builder      Code implementation (Sonnet)
-  verifier     Test plans, CI status (Haiku)
-  critic       Code review (Sonnet)
-  sentinel     Security audit (Opus)
-  scribe       Public documentation (Sonnet)
-  archaeologist Legacy code analysis (Opus)
+Roles (with default tier):
+  architect     Architecture decisions, ADRs          (reasoning)
+  planner       Roadmap, task coordination            (execution)
+  builder       Code implementation                   (execution)
+  verifier      Test plans, CI status                 (template)
+  critic        Code review                           (execution)
+  sentinel      Security audit                        (reasoning)
+  scribe        Public documentation                  (execution)
+  archaeologist Legacy code analysis                  (reasoning)
+
+Tools (3rd arg to 'start'):
+  claude (default)   Anthropic Claude Code
+  codex              OpenAI Codex / GPT-5.4 series
+  gemini             Google Gemini CLI / 3.x series
 
 Examples:
   bash expero.sh init my-app new-product
   bash expero.sh start architect
   bash expero.sh start builder M0-001
   bash expero.sh start builder M0-001 codex
+  bash expero.sh start archaeologist legacy-M0-001 gemini
   bash expero.sh status
   bash expero.sh restart
 
