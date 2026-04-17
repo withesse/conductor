@@ -28,7 +28,7 @@
 #   bash expero.sh status
 #   bash expero.sh restart
 
-set -e
+set -euo pipefail
 
 EXPERO_VERSION="1.0.0"
 COMMAND=${1:-help}
@@ -75,7 +75,9 @@ tier_for_role() {
   esac
 }
 
-# Map (tool, role) → model ID
+# Map (tool, role) → model ID. Validates role first, then tool, so error
+# messages distinguish the two failure modes instead of both saying
+# "unknown tool/role".
 model_for_role() {
   local role=$1
   local tool=${2:-claude}
@@ -91,7 +93,7 @@ model_for_role() {
     gemini:reasoning) echo "$MODEL_GEMINI_REASONING" ;;
     gemini:execution) echo "$MODEL_GEMINI_EXECUTION" ;;
     gemini:template)  echo "$MODEL_GEMINI_TEMPLATE" ;;
-    *) err "Unknown tool: $tool (supported: claude, codex, gemini)"; exit 1 ;;
+    *) err "Unknown tool: '$tool' for role '$role' (supported: claude, codex, gemini)"; exit 1 ;;
   esac
 }
 
@@ -102,39 +104,80 @@ cmd_init() {
   local project=${1:?"project name required"}
   local scenario=${2:-new-product}
 
-  # Resolve absolute path of this script BEFORE any cd. macOS bash 3.2 has
-  # no built-in realpath; use dirname/basename + pwd as portable fallback.
+  # Reject an existing target before doing anything else. init is
+  # initialization, not merge — overwriting a populated directory is
+  # almost always a bug (e.g. typo in project name).
+  if [ -e "$project" ]; then
+    err "Target '$project' already exists; init refuses to overwrite"
+    exit 1
+  fi
+
+  # Validate scenario up-front so we don't create a staging dir for an
+  # unknown scenario only to fail mid-way.
+  case $scenario in
+    new-product|migration|refactor|legacy-analysis|security-audit|tech-docs|multi-service|greenfield-library) ;;
+    *) err "Unknown scenario: '$scenario' (run 'bash $0 help' for the list)"; exit 1 ;;
+  esac
+
+  # Resolve absolute paths BEFORE any cd. macOS bash 3.2 has no built-in
+  # realpath; use dirname/basename + pwd as portable fallback.
   local script_src=""
   if [ -f "$0" ]; then
     script_src="$(cd "$(dirname "$0")" 2>/dev/null && pwd)/$(basename "$0")"
   fi
+  local parent project_name target
+  parent=$(cd "$(dirname -- "$project")" 2>/dev/null && pwd) || parent=""
+  project_name=$(basename -- "$project")
+  if [ -z "$parent" ] || [ -z "$project_name" ]; then
+    err "Cannot resolve target path for '$project'"
+    exit 1
+  fi
+  target="$parent/$project_name"
 
   info "Initializing Expero project"
   echo "  Project:  $project"
   echo "  Scenario: $scenario"
   echo ""
 
-  mkdir -p "$project/.expero" "$project/.expero/docs/adr" "$project/.expero/docs/specs" "$project/.expero/docs/review"
+  # Atomic-init: stage all generation in a sibling temp dir, then rename
+  # into place. Staging lives next to the target so `mv` is guaranteed
+  # same-filesystem (and therefore atomic). On any failure — generator
+  # error, SIGINT, disk full — the EXIT trap removes staging; the target
+  # path is never partially created. Ref: SPEC §1 principle of
+  # "repeatable, auditable" state.
+  local staging
+  staging=$(mktemp -d "$parent/.expero-init.XXXXXX")
+  trap 'rm -rf -- "$staging"' EXIT
+
+  mkdir -p "$staging/.expero" "$staging/.expero/docs/adr" "$staging/.expero/docs/specs" "$staging/.expero/docs/review" "$staging/.expero/signals"
 
   case $scenario in
-    refactor)           mkdir -p "$project/.expero/docs/refactor" ;;
-    legacy-analysis)    mkdir -p "$project/.expero/docs/legacy" "$project/.expero/docs/reverse-adr" ;;
-    security-audit)     mkdir -p "$project/.expero/docs/security" ;;
-    tech-docs)          mkdir -p "$project/.expero/docs/public" ;;
-    multi-service)      mkdir -p "$project/.expero/docs/contracts" ;;
-    greenfield-library) mkdir -p "$project/.expero/docs/public" "$project/.expero/docs/security" ;;
+    refactor)           mkdir -p "$staging/.expero/docs/refactor" ;;
+    legacy-analysis)    mkdir -p "$staging/.expero/docs/legacy" "$staging/.expero/docs/reverse-adr" ;;
+    security-audit)     mkdir -p "$staging/.expero/docs/security" ;;
+    tech-docs)          mkdir -p "$staging/.expero/docs/public" ;;
+    multi-service)      mkdir -p "$staging/.expero/docs/contracts" ;;
+    greenfield-library) mkdir -p "$staging/.expero/docs/public" "$staging/.expero/docs/security" ;;
   esac
 
-  cd "$project"
+  cd "$staging"
 
   # Generate framework config
   _gen_expero_config "$scenario"
-  _gen_claude_md "$project" "$scenario"
+  _gen_claude_md "$project_name" "$scenario"
   _gen_agents_md
   _gen_roadmap "$scenario"
   _gen_ci_status
+  _gen_changelog
+  _gen_signals_readme
   _gen_scripts "$script_src"
   _gen_gitignore
+
+  # Return to parent before mv so we're not standing inside the dir we
+  # rename (which would confuse some shells' pwd tracking).
+  cd "$parent"
+  mv -- "$staging" "$target"
+  trap - EXIT
 
   echo ""
   ok "Expero project initialized"
@@ -150,8 +193,16 @@ cmd_init() {
 # ─────────────────────────────────────────
 cmd_start() {
   local role=${1:?"role required"}
-  local task_id=$2
+  local task_id=${2:-}
   local tool=${3:-claude}
+
+  # Gate task-id to a safe charset. It's embedded in the prompt verbatim,
+  # and shell metacharacters — while never *executed* by the agent —
+  # confuse humans reading logs and break grep-based roadmap edits.
+  if [ -n "$task_id" ] && ! [[ "$task_id" =~ ^[A-Za-z0-9._-]+$ ]]; then
+    err "Invalid task-id: '$task_id' (allowed: letters, digits, '.', '_', '-')"
+    exit 1
+  fi
 
   local model
   model=$(model_for_role "$role" "$tool")
@@ -181,9 +232,10 @@ cmd_status() {
     exit 1
   fi
 
+  # awk alone (no grep | awk pipeline) is pipefail-safe: no upstream to fail.
   local scenario
-  scenario=$(grep "^scenario:" .expero/config.yaml | awk '{print $2}')
-  echo "  Scenario: $scenario"
+  scenario=$(awk '/^scenario:/{print $2; exit}' .expero/config.yaml)
+  echo "  Scenario: ${scenario:-unknown}"
   echo ""
 
   echo "Documents:"
@@ -200,10 +252,13 @@ cmd_status() {
   if [ -f ".expero/docs/roadmap.md" ]; then
     echo "Task Status:"
     local todo inprog done_ blocked
-    todo=$(_count_matches "| todo "          .expero/docs/roadmap.md)
-    inprog=$(_count_matches "| in-progress " .expero/docs/roadmap.md)
-    done_=$(_count_matches "| completed "    .expero/docs/roadmap.md)
-    blocked=$(_count_matches "| blocked "    .expero/docs/roadmap.md)
+    # Regex with pipe-boundary anchors: ensures "| todo |" matches the
+    # Status *column* of a roadmap row, not a task title that happens to
+    # contain the word "todo".
+    todo=$(_count_matches_re   "\|[[:space:]]+todo[[:space:]]+\|"         .expero/docs/roadmap.md)
+    inprog=$(_count_matches_re "\|[[:space:]]+in-progress[[:space:]]+\|"  .expero/docs/roadmap.md)
+    done_=$(_count_matches_re  "\|[[:space:]]+completed[[:space:]]+\|"    .expero/docs/roadmap.md)
+    blocked=$(_count_matches_re "\|[[:space:]]+blocked[[:space:]]+\|"     .expero/docs/roadmap.md)
     printf "  %-12s %s\n" "todo:" "$todo"
     printf "  %-12s %s\n" "in-progress:" "$inprog"
     printf "  %-12s %s\n" "completed:" "$done_"
@@ -211,7 +266,7 @@ cmd_status() {
     echo ""
   fi
 
-  echo "Stop Signals:"
+  echo "Stop Signals (roadmap.md text markers):"
   local arch_review spec_clar sec_review
   arch_review=$(_count_matches "NEEDS_ARCH_REVIEW"        .expero/docs/roadmap.md)
   spec_clar=$(_count_matches  "NEEDS_SPEC_CLARIFICATION"  .expero/docs/roadmap.md)
@@ -220,10 +275,85 @@ cmd_status() {
   printf "  %-28s %s\n" "NEEDS_SPEC_CLARIFICATION:" "$spec_clar"
   printf "  %-28s %s\n" "NEEDS_SECURITY_REVIEW:"    "$sec_review"
 
-  if [ "$arch_review" -gt 0 ] || [ "$spec_clar" -gt 0 ] || [ "$sec_review" -gt 0 ]; then
+  # Structured signals: .expero/signals/*.json, parsed without jq.
+  # Format documented in .expero/signals/README.md.
+  local unresolved_struct=0 resolved_struct=0
+  if [ -d ".expero/signals" ]; then
+    local s_unresolved_arch=0 s_unresolved_spec=0 s_unresolved_sec=0 s_unresolved_blocked=0 s_unresolved_other=0
+    local sig
+    for sig in .expero/signals/*.json; do
+      [ -e "$sig" ] || continue
+      local stype sresolved
+      stype=$(_json_get_string "$sig" type)
+      sresolved=$(_json_get_bool "$sig" resolved)
+      if [ "$sresolved" = "true" ]; then
+        resolved_struct=$((resolved_struct + 1))
+        continue
+      fi
+      unresolved_struct=$((unresolved_struct + 1))
+      case "$stype" in
+        NEEDS_ARCH_REVIEW)        s_unresolved_arch=$((s_unresolved_arch + 1)) ;;
+        NEEDS_SPEC_CLARIFICATION) s_unresolved_spec=$((s_unresolved_spec + 1)) ;;
+        NEEDS_SECURITY_REVIEW)    s_unresolved_sec=$((s_unresolved_sec + 1)) ;;
+        BLOCKED_BY_*)             s_unresolved_blocked=$((s_unresolved_blocked + 1)) ;;
+        *)                        s_unresolved_other=$((s_unresolved_other + 1)) ;;
+      esac
+    done
+    if [ "$unresolved_struct" -gt 0 ] || [ "$resolved_struct" -gt 0 ]; then
+      echo ""
+      echo "Stop Signals (.expero/signals/*.json):"
+      printf "  %-28s %s\n" "NEEDS_ARCH_REVIEW:"        "$s_unresolved_arch"
+      printf "  %-28s %s\n" "NEEDS_SPEC_CLARIFICATION:" "$s_unresolved_spec"
+      printf "  %-28s %s\n" "NEEDS_SECURITY_REVIEW:"    "$s_unresolved_sec"
+      printf "  %-28s %s\n" "BLOCKED_BY_*:"             "$s_unresolved_blocked"
+      [ "$s_unresolved_other" -gt 0 ] && printf "  %-28s %s\n" "other:" "$s_unresolved_other"
+      printf "  %-28s %s\n" "(resolved, informational):" "$resolved_struct"
+    fi
+  fi
+
+  if [ "$arch_review" -gt 0 ] || [ "$spec_clar" -gt 0 ] || [ "$sec_review" -gt 0 ] || [ "$unresolved_struct" -gt 0 ]; then
     echo ""
     warn "Pending stop signals require attention"
   fi
+}
+
+# Minimal JSON field extractor. Handles simple "key": "value" / "key": bool
+# pairs — enough for signal files which have flat string/boolean fields.
+# Returns empty string if key not found. No nested-object support.
+_json_get_string() {
+  local file=$1
+  local key=$2
+  [ -f "$file" ] || { echo ""; return; }
+  # sed -n '/pat/p' followed by sed to strip wrapping. Using awk for a
+  # single-pass implementation that's bash-3.2 compatible.
+  awk -v k="$key" '
+    {
+      pat = "\"" k "\"[[:space:]]*:[[:space:]]*\"([^\"]*)\""
+      if (match($0, pat)) {
+        s = substr($0, RSTART, RLENGTH)
+        sub(/^"[^"]*"[[:space:]]*:[[:space:]]*"/, "", s)
+        sub(/"$/, "", s)
+        print s
+        exit
+      }
+    }
+  ' "$file"
+}
+
+_json_get_bool() {
+  local file=$1
+  local key=$2
+  [ -f "$file" ] || { echo ""; return; }
+  awk -v k="$key" '
+    {
+      pat = "\"" k "\"[[:space:]]*:[[:space:]]*(true|false)"
+      if (match($0, pat)) {
+        s = substr($0, RSTART, RLENGTH)
+        if (s ~ /true/)  { print "true";  exit }
+        if (s ~ /false/) { print "false"; exit }
+      }
+    }
+  ' "$file"
 }
 
 # ─────────────────────────────────────────
@@ -265,6 +395,173 @@ cmd_restart() {
 }
 
 # ─────────────────────────────────────────
+# validate: check artifacts against SPEC §5.2 schemas
+# ─────────────────────────────────────────
+cmd_validate() {
+  local target=${1:-}
+
+  if [ ! -f ".expero/config.yaml" ]; then
+    err "Not an Expero project (missing .expero/config.yaml)"
+    exit 1
+  fi
+
+  info "Validating artifacts (SPEC §5.2)"
+  echo ""
+
+  local files=()
+  if [ -n "$target" ]; then
+    if [ ! -f "$target" ]; then
+      err "File not found: $target"
+      exit 1
+    fi
+    files+=("$target")
+  else
+    # No nullglob: if a directory has no matches, $p stays literal and is
+    # filtered by [ -e ]. Keeps bash-3.2 macOS compatibility.
+    local p
+    for p in \
+      .expero/docs/adr/*.md \
+      .expero/docs/reverse-adr/*.md \
+      .expero/docs/specs/*.md \
+      .expero/docs/review/*.md \
+      .expero/docs/security/*.md; do
+      [ -e "$p" ] || continue
+      files+=("$p")
+    done
+  fi
+
+  if [ "${#files[@]}" -eq 0 ]; then
+    warn "No artifacts found to validate"
+    return 0
+  fi
+
+  local passed=0 failed=0 skipped=0
+  local f type
+  for f in "${files[@]}"; do
+    type=$(_classify_artifact "$f")
+    if [ -z "$type" ]; then
+      echo "  - $f (skipped: no schema for this path)"
+      skipped=$((skipped + 1))
+      continue
+    fi
+    if _validate_artifact "$f" "$type"; then
+      passed=$((passed + 1))
+    else
+      failed=$((failed + 1))
+    fi
+  done
+
+  echo ""
+  printf "  %-10s %d\n" "Passed:"  "$passed"
+  printf "  %-10s %d\n" "Failed:"  "$failed"
+  printf "  %-10s %d\n" "Skipped:" "$skipped"
+
+  if [ "$failed" -gt 0 ]; then
+    echo ""
+    err "Artifact validation failed ($failed invalid)"
+    exit 1
+  fi
+  echo ""
+  ok "All artifacts valid"
+}
+
+# Classify an artifact path to a schema key. Empty = no schema registered.
+_classify_artifact() {
+  local f=$1
+  case "$f" in
+    */adr/ADR-*.md)             echo adr ;;
+    */reverse-adr/RADR-*.md)    echo radr ;;
+    */specs/*-test-plan.md)     echo test-plan ;;
+    */specs/*.md)               echo spec ;;
+    */review/*.md)              echo review ;;
+    */security/summary.md)      echo security-summary ;;
+    */security/*.md)            echo security ;;
+    *)                          echo "" ;;
+  esac
+}
+
+# Check an artifact file against a set of required ERE patterns. Returns
+# 0 on pass, 1 on fail; prints a ✓/✗ line and per-error details.
+_validate_artifact() {
+  local f=$1
+  local type=$2
+  local patterns=()
+
+  case "$type" in
+    adr)
+      patterns=(
+        "^# ADR-[0-9]+:"
+        "^## Status"
+        "^## Context"
+        "^## Decision"
+        "^## Consequences"
+        "^## Alternatives Considered"
+      ) ;;
+    radr)
+      patterns=(
+        "^# RADR-[0-9]+:"
+        "^## Inference Confidence"
+        "^## Evidence"
+        "^## Inferred Decision"
+        "^## Current Problems"
+      ) ;;
+    spec)
+      patterns=(
+        "^# .+ Spec"
+        "^## 1\. Config Schema"
+        "^## 2\. Data Structures"
+        "^## 3\. API Endpoints"
+        "^## 4\. Error Types"
+      ) ;;
+    test-plan)
+      patterns=(
+        "^# "
+        "\|[[:space:]]*ID[[:space:]]*\|"
+      ) ;;
+    review)
+      patterns=(
+        "^# Review:"
+        "^## Verdict"
+        "(APPROVED|CHANGES_REQUESTED)"
+        "^## ADR Compliance"
+        "^## Issues"
+      ) ;;
+    security)
+      patterns=(
+        "^# Security Audit:"
+        "^## Audit Date"
+        "^## Findings"
+        "^## Summary"
+      ) ;;
+    security-summary)
+      patterns=(
+        "^# "
+        "\|[[:space:]]*Severity[[:space:]]*\|"
+      ) ;;
+  esac
+
+  local missing=()
+  local p
+  for p in "${patterns[@]}"; do
+    if ! grep -qE -- "$p" "$f" 2>/dev/null; then
+      missing+=("$p")
+    fi
+  done
+
+  if [ "${#missing[@]}" -eq 0 ]; then
+    printf "  ${GREEN}✓${NC} %s (%s)\n" "$f" "$type"
+    return 0
+  else
+    printf "  ${RED}✗${NC} %s (%s)\n" "$f" "$type"
+    local m
+    for m in "${missing[@]}"; do
+      printf "      missing: %s\n" "$m"
+    done
+    return 1
+  fi
+}
+
+# ─────────────────────────────────────────
 # Helper functions
 # ─────────────────────────────────────────
 
@@ -274,7 +571,7 @@ cmd_restart() {
 _count_files() {
   local label=$1
   local pattern=$2
-  local exclude=$3
+  local exclude=${3:-}
   local count=0
   local f
   # shellcheck disable=SC2086
@@ -297,9 +594,20 @@ _count_matches() {
   echo "${n:-0}"
 }
 
+# Same as _count_matches but uses extended regex. Use for patterns that
+# need boundary anchors (e.g. "\| todo \|" to avoid matching "| todoable |").
+_count_matches_re() {
+  local pattern=$1
+  local file=$2
+  [ -f "$file" ] || { echo 0; return; }
+  local n
+  n=$(grep -cE -- "$pattern" "$file" 2>/dev/null) || n=0
+  echo "${n:-0}"
+}
+
 _build_prompt() {
   local role=$1
-  local task_id=$2
+  local task_id=${2:-}
 
   local base="你是 ${role^}。
 
@@ -900,6 +1208,76 @@ _gen_scripts() {
   fi
 }
 
+_gen_signals_readme() {
+  # Structured stop signals live in .expero/signals/*.json (see cmd_status).
+  # This README documents the schema so Conductor tooling and agents agree
+  # on the contract without re-reading expero.sh.
+  cat > .expero/signals/README.md << 'EOF'
+# Stop Signals
+
+Structured alternative to the text markers in `roadmap.md`. Any role that
+hits a boundary issue (`NEEDS_ARCH_REVIEW`, `NEEDS_SPEC_CLARIFICATION`,
+`NEEDS_SECURITY_REVIEW`, `BLOCKED_BY_<id>`) may additionally drop a JSON
+file here. `bash expero.sh status` scans this directory and groups
+unresolved signals by type.
+
+## File naming
+
+`.expero/signals/<task-id>-<type>.json`
+
+Example: `.expero/signals/M0-003-NEEDS_ARCH_REVIEW.json`
+
+## Schema
+
+```json
+{
+  "id":          "M0-003",
+  "type":        "NEEDS_ARCH_REVIEW",
+  "raised_by":   "builder",
+  "raised_at":   "2026-04-17T12:00:00Z",
+  "description": "JWT library choice not covered by any ADR",
+  "resolved":    false,
+  "resolved_by": null,
+  "resolved_at": null
+}
+```
+
+Resolution: set `resolved: true`, fill `resolved_by` + `resolved_at`.
+`status` treats resolved signals as informational; unresolved signals
+trigger a warning.
+
+## Backwards compatibility
+
+The roadmap-text markers (`NEEDS_ARCH_REVIEW` literal in the Notes
+column) still work. Structured signals are additive, not a replacement.
+EOF
+}
+
+_gen_changelog() {
+  # Scribe owns CHANGELOG.md (see SPEC §5.3). Generate a minimal
+  # Keep-a-Changelog-format placeholder so `[ -f CHANGELOG.md ]` is true
+  # from day one and Scribe has a concrete starting point.
+  cat > CHANGELOG.md << 'EOF'
+# Changelog
+
+All notable changes to this project will be documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [Unreleased]
+
+### Added
+- _Scribe will populate this from completed roadmap tasks at release time._
+
+### Changed
+### Deprecated
+### Removed
+### Fixed
+### Security
+EOF
+}
+
 _gen_gitignore() {
   cat > .gitignore << 'EOF'
 # Environment
@@ -937,6 +1315,7 @@ Commands:
   init <name> <scenario>    Initialize a new project
   start <role> [task-id]    Launch an agent
   status                    Show project state
+  validate [path]           Check artifacts against SPEC §5.2 schemas
   restart                   Milestone boundary checklist
   help                      Show this help
 
@@ -972,7 +1351,15 @@ Examples:
   bash expero.sh start builder M0-001 codex
   bash expero.sh start archaeologist legacy-M0-001 gemini
   bash expero.sh status
+  bash expero.sh validate
   bash expero.sh restart
+
+Notes:
+  - <task-id> is embedded verbatim into the agent prompt; restrict it to
+    [A-Za-z0-9._-]. Shell metacharacters (\$, \`, |, <, >, &, ;, spaces)
+    are not interpreted but may pollute prompt context.
+  - 'validate' checks all .expero/docs/**/*.md against SPEC §5.2 schemas;
+    exits non-zero if any artifact is malformed.
 
 Documentation: https://github.com/withesse/expero-agents
 EOF
@@ -984,10 +1371,11 @@ EOF
 # Skip dispatch when sourced (lets test-expero.sh call functions directly).
 if [ "${BASH_SOURCE[0]:-$0}" = "$0" ]; then
   case "$COMMAND" in
-    init)    shift; cmd_init "$@" ;;
-    start)   shift; cmd_start "$@" ;;
-    status)  cmd_status ;;
-    restart) cmd_restart ;;
+    init)     shift; cmd_init "$@" ;;
+    start)    shift; cmd_start "$@" ;;
+    status)   cmd_status ;;
+    restart)  cmd_restart ;;
+    validate) shift; cmd_validate "${1:-}" ;;
     help|-h|--help) cmd_help ;;
     *) err "Unknown command: $COMMAND"; echo ""; cmd_help; exit 1 ;;
   esac

@@ -1,4 +1,4 @@
-# /Users/zt/zt-all/expero-agents/examples/demo-new-product
+# demo-new-product
 
 Expero Agents project (scenario: **new-product**).
 
