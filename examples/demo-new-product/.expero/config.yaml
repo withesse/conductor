@@ -1,0 +1,18 @@
+version: 1.0.0
+scenario: new-product
+created: 2026-04-17T13:02:57Z
+
+roles:
+  core:
+    - planner
+    - architect
+    - builder
+    - verifier
+    - critic
+  extensions:
+
+
+model_mapping:
+  reasoning:  claude-opus-4-7
+  execution:  claude-sonnet-4-6
+  template:   claude-haiku-4-5-20251001

@@ -1,0 +1,21 @@
+# Environment
+.env
+.env.local
+.env.*.local
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# OS
+.DS_Store
+
+# Language-specific (uncomment as needed)
+# target/          # Rust
+# node_modules/    # Node.js
+# dist/
+# .gradle/         # Java/Gradle
+# build/
+# __pycache__/     # Python
+# *.pyc
