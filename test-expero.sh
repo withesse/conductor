@@ -54,8 +54,20 @@ for s in $SCENARIOS; do
   assert_zero "  config.yaml generated"  "[ -f '$TMPDIR/$s/.expero/config.yaml' ]"
   assert_zero "  roadmap.md generated"   "[ -f '$TMPDIR/$s/.expero/docs/roadmap.md' ]"
   assert_zero "  CLAUDE.md generated"    "[ -f '$TMPDIR/$s/CLAUDE.md' ]"
+  assert_zero "  AGENTS.md generated"    "[ -f '$TMPDIR/$s/AGENTS.md' ]"
   assert_zero "  expero.sh bootstrapped" "[ -x '$TMPDIR/$s/expero.sh' ]"
 done
+
+echo ""
+echo "== T2b: AGENTS.md covers Role Quick Reference + Stop Signal Syntax =="
+# Only need to check one scenario — _gen_agents_md does not branch on scenario.
+AGENTS_MD="$TMPDIR/new-product/AGENTS.md"
+assert_match "  Role Quick Reference section present" "cat '$AGENTS_MD'" "^## Role Quick Reference"
+assert_match "  Stop Signal Syntax section present"   "cat '$AGENTS_MD'" "^## Stop Signal Syntax"
+assert_match "  table lists 8 roles (planner)"        "cat '$AGENTS_MD'" "\\| planner +\\|"
+assert_match "  table lists 8 roles (archaeologist)"  "cat '$AGENTS_MD'" "\\| archaeologist +\\|"
+assert_match "  doc mentions NEEDS_ARCH_REVIEW"       "cat '$AGENTS_MD'" "NEEDS_ARCH_REVIEW"
+assert_match "  doc mentions BLOCKED_BY_"             "cat '$AGENTS_MD'" "BLOCKED_BY_"
 
 echo ""
 echo "== T3: config.yaml embeds correct model IDs =="
