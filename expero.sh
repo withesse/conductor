@@ -974,7 +974,7 @@ Examples:
   bash expero.sh status
   bash expero.sh restart
 
-Documentation: https://github.com/your-org/expero-agents
+Documentation: https://github.com/withesse/expero-agents
 EOF
 }
 

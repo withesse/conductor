@@ -8,13 +8,15 @@
 
 不改变核心抽象，聚焦在让文档和实现完全对齐，以及与现代 agent 生态接入。
 
-### v1.1 — 文档清理
+### v1.1 — 文档清理（已随 v1.0.0 发布）
 
-- `AGENTS.md` 补充 Role 速查（owns/reads 矩阵），便于非 Claude 工具使用
-- `CLAUDE.md` 生成模板示例化（去掉 `<!-- Fill in -->` 占位符，按 scenario 给出填好的示例）
-- 新增 `CHANGELOG.md`（v1.0.0 起记录）
-- 新增 `LICENSE` 文件（CC0 全文）
-- 清理 `README.md` 中的 `your-org` 占位符
+所有 v1.1 原计划项已在 v1.0.0 发布前一并完成，详见 [CHANGELOG.md](./CHANGELOG.md)：
+
+- [x] `AGENTS.md` 补充 Role 速查（Owns / Reads / Never 矩阵）
+- [x] `CLAUDE.md` 模板去占位符，每段改为带 `e.g.` 示例的起点内容
+- [x] `CHANGELOG.md`（Keep a Changelog 格式）
+- [x] `LICENSE` 文件（CC0 1.0 Universal 全文）
+- [x] 清理 `README.md` / `expero.sh` 中的 `your-org` 占位符
 
 ### v1.2 — 生态集成
 
