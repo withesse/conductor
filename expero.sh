@@ -102,13 +102,20 @@ cmd_init() {
   local project=${1:?"project name required"}
   local scenario=${2:-new-product}
 
+  # Resolve absolute path of this script BEFORE any cd. macOS bash 3.2 has
+  # no built-in realpath; use dirname/basename + pwd as portable fallback.
+  local script_src=""
+  if [ -f "$0" ]; then
+    script_src="$(cd "$(dirname "$0")" 2>/dev/null && pwd)/$(basename "$0")"
+  fi
+
   info "Initializing Expero project"
   echo "  Project:  $project"
   echo "  Scenario: $scenario"
   echo ""
 
   mkdir -p "$project/.expero" "$project/.expero/docs/adr" "$project/.expero/docs/specs" "$project/.expero/docs/review"
-  
+
   case $scenario in
     refactor)           mkdir -p "$project/.expero/docs/refactor" ;;
     legacy-analysis)    mkdir -p "$project/.expero/docs/legacy" "$project/.expero/docs/reverse-adr" ;;
@@ -126,7 +133,7 @@ cmd_init() {
   _gen_agents_md
   _gen_roadmap "$scenario"
   _gen_ci_status
-  _gen_scripts
+  _gen_scripts "$script_src"
   _gen_gitignore
 
   echo ""
@@ -193,30 +200,27 @@ cmd_status() {
   if [ -f ".expero/docs/roadmap.md" ]; then
     echo "Task Status:"
     local todo inprog done_ blocked
-    todo=$(grep -c "| todo " .expero/docs/roadmap.md 2>/dev/null | head -1)
-    inprog=$(grep -c "| in-progress " .expero/docs/roadmap.md 2>/dev/null | head -1)
-    done_=$(grep -c "| completed " .expero/docs/roadmap.md 2>/dev/null | head -1)
-    blocked=$(grep -c "| blocked " .expero/docs/roadmap.md 2>/dev/null | head -1)
-    printf "  %-12s %s\n" "todo:" "${todo:-0}"
-    printf "  %-12s %s\n" "in-progress:" "${inprog:-0}"
-    printf "  %-12s %s\n" "completed:" "${done_:-0}"
-    printf "  %-12s %s\n" "blocked:" "${blocked:-0}"
+    todo=$(_count_matches "| todo "          .expero/docs/roadmap.md)
+    inprog=$(_count_matches "| in-progress " .expero/docs/roadmap.md)
+    done_=$(_count_matches "| completed "    .expero/docs/roadmap.md)
+    blocked=$(_count_matches "| blocked "    .expero/docs/roadmap.md)
+    printf "  %-12s %s\n" "todo:" "$todo"
+    printf "  %-12s %s\n" "in-progress:" "$inprog"
+    printf "  %-12s %s\n" "completed:" "$done_"
+    printf "  %-12s %s\n" "blocked:" "$blocked"
     echo ""
   fi
 
   echo "Stop Signals:"
   local arch_review spec_clar sec_review
-  arch_review=$(grep -c "NEEDS_ARCH_REVIEW" .expero/docs/roadmap.md 2>/dev/null | head -1)
-  spec_clar=$(grep -c "NEEDS_SPEC_CLARIFICATION" .expero/docs/roadmap.md 2>/dev/null | head -1)
-  sec_review=$(grep -c "NEEDS_SECURITY_REVIEW" .expero/docs/roadmap.md 2>/dev/null | head -1)
-  arch_review=${arch_review:-0}
-  spec_clar=${spec_clar:-0}
-  sec_review=${sec_review:-0}
-  printf "  %-28s %s\n" "NEEDS_ARCH_REVIEW:" "$arch_review"
+  arch_review=$(_count_matches "NEEDS_ARCH_REVIEW"        .expero/docs/roadmap.md)
+  spec_clar=$(_count_matches  "NEEDS_SPEC_CLARIFICATION"  .expero/docs/roadmap.md)
+  sec_review=$(_count_matches "NEEDS_SECURITY_REVIEW"     .expero/docs/roadmap.md)
+  printf "  %-28s %s\n" "NEEDS_ARCH_REVIEW:"        "$arch_review"
   printf "  %-28s %s\n" "NEEDS_SPEC_CLARIFICATION:" "$spec_clar"
-  printf "  %-28s %s\n" "NEEDS_SECURITY_REVIEW:" "$sec_review"
+  printf "  %-28s %s\n" "NEEDS_SECURITY_REVIEW:"    "$sec_review"
 
-  if [ "$arch_review" -gt 0 ] 2>/dev/null || [ "$spec_clar" -gt 0 ] 2>/dev/null || [ "$sec_review" -gt 0 ] 2>/dev/null; then
+  if [ "$arch_review" -gt 0 ] || [ "$spec_clar" -gt 0 ] || [ "$sec_review" -gt 0 ]; then
     echo ""
     warn "Pending stop signals require attention"
   fi
@@ -264,18 +268,33 @@ cmd_restart() {
 # Helper functions
 # ─────────────────────────────────────────
 
+# Count files matching a shell glob, optionally excluding those whose name
+# contains a substring. Uses shell globbing (safe with spaces / newlines),
+# never parses `ls` output. Returns 0 if the glob does not match anything.
 _count_files() {
   local label=$1
   local pattern=$2
   local exclude=$3
-  local count
+  local count=0
+  local f
   # shellcheck disable=SC2086
-  if [ -n "$exclude" ]; then
-    count=$(ls $pattern 2>/dev/null | grep -v "$exclude" 2>/dev/null | wc -l | tr -d ' ')
-  else
-    count=$(ls $pattern 2>/dev/null | wc -l | tr -d ' ')
-  fi
-  printf "  %-20s %s\n" "$label:" "${count:-0}"
+  for f in $pattern; do
+    [ -e "$f" ] || continue
+    [ -n "$exclude" ] && [[ "$f" == *"$exclude"* ]] && continue
+    count=$((count + 1))
+  done
+  printf "  %-20s %s\n" "$label:" "$count"
+}
+
+# Count lines matching a fixed string in a file. Returns 0 if file is
+# missing or pattern not found. Always emits a single integer on stdout.
+_count_matches() {
+  local pattern=$1
+  local file=$2
+  [ -f "$file" ] || { echo 0; return; }
+  local n
+  n=$(grep -cF -- "$pattern" "$file" 2>/dev/null) || n=0
+  echo "${n:-0}"
 }
 
 _build_prompt() {
@@ -514,6 +533,18 @@ HIGH | MEDIUM | LOW
 
 _gen_expero_config() {
   local scenario=$1
+
+  # Compute scenario-specific extension list BEFORE the heredoc.
+  # Embedding `$(case ...)` inside a heredoc confuses bash's paren matcher
+  # on some versions and produces literal text in the output.
+  local extensions=""
+  case $scenario in
+    legacy-analysis)    extensions=$'    - archaeologist\n    - scribe' ;;
+    security-audit)     extensions=$'    - sentinel' ;;
+    tech-docs)          extensions=$'    - scribe' ;;
+    greenfield-library) extensions=$'    - scribe\n    - sentinel' ;;
+  esac
+
   cat > .expero/config.yaml << EOF
 version: $EXPERO_VERSION
 scenario: $scenario
@@ -527,17 +558,12 @@ roles:
     - verifier
     - critic
   extensions:
-$(case $scenario in
-  legacy-analysis)    echo "    - archaeologist"; echo "    - scribe" ;;
-  security-audit)     echo "    - sentinel" ;;
-  tech-docs)          echo "    - scribe" ;;
-  greenfield-library) echo "    - scribe"; echo "    - sentinel" ;;
-esac)
+$extensions
 
 model_mapping:
-  reasoning:  $MODEL_OPUS
-  execution:  $MODEL_SONNET
-  template:   $MODEL_HAIKU
+  reasoning:  $MODEL_CLAUDE_REASONING
+  execution:  $MODEL_CLAUDE_EXECUTION
+  template:   $MODEL_CLAUDE_TEMPLATE
 EOF
 }
 
@@ -545,24 +571,30 @@ _gen_claude_md() {
   local project=$1
   local scenario=$2
 
+  # Compute roles line BEFORE heredoc (same reason as _gen_expero_config).
+  local roles_line
+  case $scenario in
+    new-product|migration|refactor|multi-service)
+      roles_line="- planner, architect, builder, verifier, critic" ;;
+    legacy-analysis)
+      roles_line="- planner, architect, archaeologist, scribe" ;;
+    security-audit)
+      roles_line="- planner, sentinel, builder" ;;
+    tech-docs)
+      roles_line="- planner, architect, scribe" ;;
+    greenfield-library)
+      roles_line="- planner, architect, builder, verifier, critic, scribe, sentinel" ;;
+    *)
+      roles_line="- planner, architect, builder, verifier, critic" ;;
+  esac
+
   cat > CLAUDE.md << EOF
 # $project
 
 Expero Agents project (scenario: **$scenario**).
 
 ## Roles Enabled
-$(case $scenario in
-  new-product|migration|refactor|multi-service)
-    echo "- planner, architect, builder, verifier, critic" ;;
-  legacy-analysis)
-    echo "- planner, architect, archaeologist, scribe" ;;
-  security-audit)
-    echo "- planner, sentinel, builder" ;;
-  tech-docs)
-    echo "- planner, architect, scribe" ;;
-  greenfield-library)
-    echo "- planner, architect, builder, verifier, critic, scribe, sentinel" ;;
-esac)
+$roles_line
 
 ## Project Context
 <!-- Fill in: tech stack, architecture, module map -->
@@ -793,11 +825,11 @@ EOF
 }
 
 _gen_scripts() {
-  # Copy the current script as the project-level expero.sh
-  local script_path
-  script_path=$(realpath "$0" 2>/dev/null || readlink -f "$0" 2>/dev/null || echo "$0")
-  
-  if [ -f "$script_path" ] && [ "$script_path" != "$(pwd)/expero.sh" ]; then
+  # Copy the bootstrap script into the new project so users can run it
+  # in-tree without keeping the source tree around. Caller must pass the
+  # absolute path resolved BEFORE any cd (see cmd_init).
+  local script_path=$1
+  if [ -n "$script_path" ] && [ -f "$script_path" ] && [ "$script_path" != "$(pwd)/expero.sh" ]; then
     cp "$script_path" expero.sh
     chmod +x expero.sh
   fi
