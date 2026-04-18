@@ -21,6 +21,16 @@ and the project adheres to Semantic Versioning.
   source repo.
 
 ### Added
+- `docs/DESIGN-subagent-dispatch.md` — architectural design document
+  for v2.0.4 subagent scheduling. Compares three strategies
+  (keep-CLI-only / replace-with-subagent / hybrid), recommends the
+  hybrid approach ("Strategy C") where `.claude/agents/expero-<role>.md`
+  definitions ship alongside the existing CLI `start`. Codex / Gemini
+  users remain unaffected. Defines phase-1 scope (subagent
+  definitions, no orchestrator) and phase-2 scope (orchestrator agent
+  that chains role dispatches). Explicitly names what's not-decided
+  and asks for strategy ACK before any code. No code changes in
+  this commit — the doc itself is the artifact.
 - `docs/DESIGN-coverage-gate.md` — design document for the deferred
   `test_coverage` gate. Compares three strategies (Verifier-writes /
   run-command / parse-artifact), recommends the third with fallback,
