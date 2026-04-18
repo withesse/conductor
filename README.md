@@ -121,28 +121,30 @@ project/
 
   .expero/
     config.yaml               # 框架配置
-    docs/                     # 所有框架文档
-      vision.md               # [planner] 愿景
-      roadmap.md              # [planner] 任务清单
-      gap-analysis.md         # [architect] 差距分析
-      ci-status.md            # [verifier] CI 状态
 
+    docs/                     # 所有 Artifact
+      roadmap.md              # [planner] 任务清单
+      ci-status.md            # [verifier] CI 状态
       adr/                    # [architect] 架构决策
       specs/                  # [planner + architect + verifier]
       review/                 # [critic] 代码审查
-      security/               # [sentinel] 安全报告
-      public/                 # [scribe] 对外文档
-      legacy/                 # [archaeologist] 遗留文档
-      reverse-adr/            # [archaeologist] 逆向 ADR
+      security/               # [sentinel] 安全报告（按需）
+      public/                 # [scribe] 对外文档（按需）
+      legacy/                 # [archaeologist] 遗留文档（按需）
+      reverse-adr/            # [archaeologist] 逆向 ADR（按需）
+
+    signals/                  # 结构化 stop signals（JSON）
+    roles/                    # Role prompt 模板（init 时从源仓库复制）
+    scenarios/                # Scenario 定义（同上）
+    schemas/                  # Artifact schema 定义（同上）
 
   docs/                       # （可选）项目原生文档，Expero 不管理
 ```
 
-**关键设计**：所有框架文档放在 `.expero/docs/` 下，与项目原生的 `docs/` 完全隔离。这样：
-
-- 不污染已有项目
-- 边界清晰（agent 禁止修改 `.expero/` 以外的既有文档）
-- 需要时整个 `.expero/` 可独立归档
+**关键设计**：
+- 所有框架文档放在 `.expero/docs/` 下，与项目原生的 `docs/` 完全隔离
+- `.expero/{roles,scenarios,schemas}/` 是 init 时从源仓库复制的**数据副本**，项目因此成为一个完整的 install——可以自己 `init` 子项目而无需源仓库可达
+- 详见 [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md)
 
 ## 工作流示例
 
@@ -243,19 +245,25 @@ bash expero.sh start archaeologist legacy-M0-001 gemini
 
 ## 文档
 
-- [SPEC.md](./SPEC.md) — 完整框架规范
-- [expero.sh](./expero.sh) — CLI 工具
-- [examples/](./examples/) — 各场景的 init 输出样例
+- [SPEC.md](./SPEC.md) — 完整框架规范（Role / Artifact / Workflow 概念模型）
+- [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md) — 代码布局、资源解析、原子 init
+- [docs/EXTENDING.md](./docs/EXTENDING.md) — 如何新增 role / scenario / schema
+- [ROADMAP.md](./ROADMAP.md) — 版本计划
+- [CHANGELOG.md](./CHANGELOG.md) — 发版记录
+- [examples/](./examples/) — `init` 输出样例
 
 ## 开发与测试
 
-`expero.sh` 自带回归测试，修改 CLI 后请先跑一遍：
+`expero.sh` 自带回归测试，修改 CLI 或数据文件（roles/scenarios/schemas）后请先跑一遍：
 
 ```bash
 bash test-expero.sh
 ```
 
-测试覆盖：help 命令、8 个 scenario 的 `init`、`config.yaml` 模型 ID、extensions 列表、`CLAUDE.md` 角色行、`status` 任务计数、stop signal 检测、`model_for_role` 24 种（3 工具 × 8 role）组合、`restart` 错误处理。
+覆盖范围：help 命令、8 scenario × 24 (role × tool) 组合、CLAUDE.md 模板占位符、
+status 任务计数、stop signal 检测（文本 + 结构化 JSON）、validate 校验、init
+原子化、detached 项目能自己 init 子项目、以及 roadmap/config/CLAUDE.md 的
+**字节级回归**（重构前后生成结果必须完全相同）。
 
 ## FAQ
 

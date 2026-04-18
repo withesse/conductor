@@ -7,6 +7,15 @@ and the project adheres to Semantic Versioning.
 ## [Unreleased]
 
 ### Added
+- `docs/ARCHITECTURE.md` — describes the post-refactor layout:
+  `expero.sh` = scaffolding, `roles/` + `scenarios/` + `schemas/` =
+  declarative data, `.expero/*` = self-contained project copy. Covers
+  the three-level `_resource_root` resolver, atomic init, template
+  substitution, and the custom JSON parser's array format rules.
+- `docs/EXTENDING.md` — three cookbook recipes: add a role, add a
+  scenario, add an artifact schema. Each lists every file to edit and
+  every test assertion to add; "add a scenario" is now data-only (no
+  `expero.sh` edit).
 - `schemas/` top-level directory: 7 artifact schemas as JSON
   (`adr.json`, `radr.json`, `spec.json`, `test-plan.json`, `review.json`,
   `security.json`, `security-summary.json`). Each declares `name`,

@@ -32,18 +32,20 @@
 
 | 章节 | 功能 | CLI 实现 | 备注 |
 |------|------|---------|------|
-| §3   | Role 定义与 prompt     | ✅         | `expero.sh` 内置 8 个 role 的启动 prompt |
+| §3   | Role 定义与 prompt     | ✅         | 8 个 role 定义在 `roles/*.md`（v1.x 解耦后数据化） |
 | §4.1 | 声明式 Workflow        | 📋 v2.0    | YAML 工作流暂无执行引擎 |
 | §4.2 | Quality Gates          | 📋 v2.0    | gate 规则在 SPEC 中，执行靠人工 |
-| §4.3 | Stop Signal 与恢复     | 🟡 basic   | 靠 `grep`，人工分派 |
-| §5.1 | 目录结构               | ✅         | `init` 按 scenario 生成 |
-| §5.2 | Artifact Schema        | 🟡 文档    | Schema 在 SPEC，但不强制校验 |
+| §4.3 | Stop Signal 与恢复     | 🟡 partial | JSON 信号 + `status` 解析已就绪；自动分派 / resolved 归档为 v2.0.1 |
+| §5.1 | 目录结构               | ✅         | `init` 按 `scenarios/<name>.json` 生成 |
+| §5.2 | Artifact Schema        | 🟢 enforced | `validate` 命令校验 7 类（schemas/*.json）；workflow 门控集成为 v2.0.2 |
 | §5.3 | Ownership 矩阵         | 🟡 文档    | prompt 约定，文件系统不隔离 |
-| §6   | 8 个 Scenario          | ✅         | 全部有 init 模板 |
+| §6   | 8 个 Scenario          | ✅         | 定义在 `scenarios/*.json` + `scenarios/roadmaps/*.md` |
 | §7   | 多工具支持             | ✅         | claude / codex / gemini |
 | §8   | 成本模型               | ✅         | tier 映射已落实到代码 |
 
-图例：✅ 已实现 · 🟡 部分（文档化但不强制） · 📋 列入 roadmap（见 [ROADMAP.md](./ROADMAP.md)）
+图例：✅ 已实现 · 🟢 已实现且可验证 · 🟡 部分（文档化但不强制） · 📋 列入 roadmap（见 [ROADMAP.md](./ROADMAP.md)）
+
+> **架构与扩展**：`roles/`、`scenarios/`、`schemas/` 是数据而非代码——新增 role / scenario / artifact schema 不需要改 `expero.sh`。完整架构说明见 [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md)，扩展配方见 [docs/EXTENDING.md](./docs/EXTENDING.md)。
 
 > 设计哲学 §1.3「不追求全自动」仍然成立——roadmap 的目标是把 SPEC 中声明式的部分真正变成结构约束（P3），而不是追求更高的自动化程度。
 
