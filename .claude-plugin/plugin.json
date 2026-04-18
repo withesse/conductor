@@ -1,0 +1,6 @@
+{
+  "name": "expero",
+  "version": "1.0.0",
+  "description": "Expero Agents — 8 role skills for large-project AI collaboration (planner, architect, builder, verifier, critic, sentinel, scribe, archaeologist). Loads when working inside a project with .expero/docs/.",
+  "homepage": "https://github.com/withesse/expero-agents"
+}

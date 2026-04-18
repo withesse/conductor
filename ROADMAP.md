@@ -86,16 +86,23 @@ v1.2 已完整落地 `expero.sh validate`，并在后续 refactor 中把 schema 
 case 抽到 `schemas/*.json`，新增 artifact type 不再需要改代码。独立形态工作
 归零；与 Quality Gate 的集成并入 2.0.2 的 `artifacts_valid` 条目。
 
-### 2.0.4 — 基于 Agent SDK / subagent 的调度器
+### 2.0.4 — 基于 Agent SDK / subagent 的调度器（Skills 层已在 v1.2 落地）
 
-用 Claude Code subagent 或 Anthropic Agent SDK 重写 `cmd_start`：
+**已交付**（v1.2 作为 Phase 2 / 路线 B 的一部分）：
+- [x] Claude Code Skills 打包：`.claude-plugin/skills/expero-<role>/`
+      × 8，由 `scripts/regen-skills.sh` 从 `roles/*.md` 统一渲染
+- [x] Skills-and-CLI 双栖：Codex / Gemini 用户仍用 `expero.sh start`，无回归
+- [x] 单一真相源：role prompt 源在 `roles/`，skills 是衍生视图，测试保证两者字节级同步
 
-- Role 变成 `.claude/agents/<role>.md`（subagent 定义）
-- 主 agent 通过 Task 工具调度 Role，不再需要人类手动管 5-8 个终端
-- Stop signal 通过 subagent 返回值 + 文件系统双写
-- 里程碑边界重启成为内部机制（不再依赖人工关开终端）
+**v2.0.4 的剩余工作**（真正的 subagent 调度）：
+- [ ] Role 变成 `.claude/agents/<role>.md`（subagent 定义，独立上下文窗口）
+- [ ] 主 agent 通过 Task 工具并行调度 Role，不再需要人类手动管 5-8 个终端
+- [ ] Stop signal 通过 subagent 返回值 + 文件系统双写
+- [ ] 里程碑边界重启成为内部机制（不再依赖人工关开终端）
 
-**动机**：2024 年的手动多终端模式已被原生 subagent 取代。原有「Role 之间通过文件系统通信」的设计反而是 subagent 的天然实现。
+**动机**：2024 年的手动多终端模式已被原生 subagent 取代。Skills 解决了
+「如何让 Claude Code 自动应用 role 方法论」；subagent 解决「如何并行运行
+多个 role」——两个问题，两层实现。
 
 ---
 

@@ -741,6 +741,55 @@ assert_match "help lists security_clean"    "bash '$EXPERO' help" "security_clea
 assert_match "help lists all meta-gate"     "bash '$EXPERO' help" "^  all "
 
 echo ""
+echo "== T26r: Claude Code Skills plugin exists =="
+PLUGIN_DIR="$SCRIPT_DIR/.claude-plugin"
+assert_zero "  plugin.json exists"             "[ -f '$PLUGIN_DIR/plugin.json' ]"
+assert_match "  plugin.json has name 'expero'" "cat '$PLUGIN_DIR/plugin.json'" '"name":[[:space:]]*"expero"'
+for role in architect planner builder verifier critic sentinel scribe archaeologist; do
+  assert_zero "  skills/expero-$role/SKILL.md exists" \
+      "[ -f '$PLUGIN_DIR/skills/expero-$role/SKILL.md' ]"
+  assert_match "  expero-$role has frontmatter name" \
+      "cat '$PLUGIN_DIR/skills/expero-$role/SKILL.md'" "^name: expero-$role\$"
+  assert_match "  expero-$role has frontmatter description" \
+      "cat '$PLUGIN_DIR/skills/expero-$role/SKILL.md'" "^description: "
+done
+assert_match "  architect description triggers on ADR" \
+    "cat '$PLUGIN_DIR/skills/expero-architect/SKILL.md'" "Architecture Decision Records"
+assert_match "  critic description triggers on review" \
+    "cat '$PLUGIN_DIR/skills/expero-critic/SKILL.md'" "review"
+assert_match "  sentinel description triggers on security" \
+    "cat '$PLUGIN_DIR/skills/expero-sentinel/SKILL.md'" "security audit"
+
+echo ""
+echo "== T26s: Skills stay in sync with roles/*.md =="
+# Run regen to a temp dir, compare byte-for-byte against committed
+# .claude-plugin/. Any drift (role edit without running regen-skills)
+# fails the test — same discipline as scenarios/roadmaps byte-regression.
+SKILLS_TMP="$TMPDIR/skills-regen"
+bash "$SCRIPT_DIR/scripts/regen-skills.sh" "$SKILLS_TMP" >/dev/null
+for role in architect planner builder verifier critic sentinel scribe archaeologist; do
+  committed="$PLUGIN_DIR/skills/expero-$role/SKILL.md"
+  regenned="$SKILLS_TMP/skills/expero-$role/SKILL.md"
+  if cmp -s "$committed" "$regenned"; then
+    pass "  expero-$role SKILL.md up-to-date"
+  else
+    fail "  expero-$role SKILL.md up-to-date" "(run 'bash scripts/regen-skills.sh')"
+  fi
+done
+if cmp -s "$PLUGIN_DIR/plugin.json" "$SKILLS_TMP/plugin.json"; then
+  pass "  plugin.json up-to-date"
+else
+  fail "  plugin.json up-to-date" "(run 'bash scripts/regen-skills.sh')"
+fi
+
+echo ""
+echo "== T26t: regen-skills script is self-contained (runs from any cwd) =="
+# Guard: the script resolves repo root via $(dirname $0)/.., so it must
+# work whether invoked from the repo or from elsewhere with an abs path.
+assert_zero "regen-skills runs from /tmp via abs path" \
+    "cd '$TMPDIR' && bash '$SCRIPT_DIR/scripts/regen-skills.sh' '$TMPDIR/skills-check' >/dev/null"
+
+echo ""
 echo "== T27: detached project can init a sub-project using .expero/scenarios =="
 # When expero.sh is copied into a project, that project becomes a valid
 # "install": the copy must be able to init another sub-project without

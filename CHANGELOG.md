@@ -7,6 +7,20 @@ and the project adheres to Semantic Versioning.
 ## [Unreleased]
 
 ### Added
+- Claude Code plugin at `.claude-plugin/` — distributes the 8 role
+  prompts as Claude Code skills (`expero-architect`, `expero-planner`,
+  …, `expero-archaeologist`). Each skill's description matcher
+  activates it when the conversation matches the role's triggers
+  (e.g. "write an ADR" → `expero-architect`). This is a *bonus layer*
+  for Claude Code users — Codex / Gemini users continue using
+  `expero.sh start` with no change. The CLI and skills render from the
+  same `roles/*.md` source of truth.
+- `scripts/regen-skills.sh` — idempotent generator that renders
+  `.claude-plugin/skills/expero-<role>/SKILL.md` × 8 + `plugin.json`
+  from `roles/*.md`. Run after every role-prompt change.
+- `docs/SKILLS.md` — install instructions, when to use Skills vs CLI,
+  single-source-of-truth discipline, and extension pointer for
+  adding role metadata in `scripts/regen-skills.sh`.
 - `expero.sh gate <name> [task-id]` — Quality Gate executor (SPEC §4.2).
   Three built-in gates shipped, plus a meta-gate:
   - `artifacts_valid` — every classified artifact passes its schema.
