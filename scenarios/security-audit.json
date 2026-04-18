@@ -1,0 +1,8 @@
+{
+  "name": "security-audit",
+  "description": "Systematic security review",
+  "active_roles": ["planner", "sentinel", "builder"],
+  "extension_roles": ["sentinel"],
+  "extra_dirs": [".expero/docs/security"],
+  "roadmap_template": "roadmaps/security-audit.md"
+}

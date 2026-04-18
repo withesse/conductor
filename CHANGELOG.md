@@ -7,6 +7,33 @@ and the project adheres to Semantic Versioning.
 ## [Unreleased]
 
 ### Added
+- `scenarios/` top-level directory: 8 scenario definitions as JSON
+  (`new-product.json`, `migration.json`, …) plus `scenarios/roadmaps/`
+  holding 7 roadmap templates as plain Markdown. Previously hardcoded
+  as a 170-line `case` + heredoc block inside `_gen_roadmap()` plus
+  smaller case branches in `_gen_expero_config()` and `_gen_claude_md()`.
+  All three generators now read scenario data from JSON.
+- Each `scenarios/<name>.json` declares: `name`, `description`,
+  `active_roles[]` (display-ordered list for `CLAUDE.md`),
+  `extension_roles[]` (config.yaml extensions beyond the universal five),
+  `extra_dirs[]` (scenario-specific `.expero/docs/` subdirs to create),
+  and `roadmap_template` (path to a markdown file in
+  `scenarios/roadmaps/`). `greenfield-library.json` explicitly shares
+  `new-product.md` as its template — the coupling is now visible.
+- `_json_get_array` helper: single-line array parser in awk, zero
+  external dependencies (no `jq`). Consistent with existing
+  `_json_get_string`/`_json_get_bool`.
+- `EXPERO_SCRIPT_PATH` global: absolute path to `expero.sh`, resolved
+  once at load time before any `cd`. Replaces ad-hoc `$0` resolution
+  inside `cmd_init` and enables `_resource_root()` to work correctly
+  after staging-dir `cd`.
+- `init` copies `scenarios/` (and `roadmaps/`) into
+  `.expero/scenarios/`, mirroring the roles/ copy pattern. A generated
+  project is now itself a valid "install": you can `cd myproject && bash
+  expero.sh init subproject new-product` without the source repo.
+- `_resource_root()` learned a third lookup path: `EXPERO_SCRIPT_PATH`'s
+  sibling `.expero/roles/` (project-copy install) alongside the existing
+  project-cwd and source-repo branches.
 - `roles/` top-level directory holding the 8 role prompts as plain
   Markdown (`architect.md`, `planner.md`, …, `archaeologist.md`) plus a
   shared `_base.md` preamble. Previously hardcoded as bash heredocs
@@ -41,6 +68,15 @@ and the project adheres to Semantic Versioning.
   structured-signal parsing, set-u robustness, and help-line content.
 
 ### Changed
+- Scenario validation in `init` moved from a hardcoded `case` branch to
+  file-existence check (`scenarios/<name>.json`). Adding a new scenario
+  no longer requires editing `expero.sh`.
+- `_gen_roadmap()` shrunk from 166 lines (9-way `case` + 7 heredocs) to
+  a 15-line `cp` of the JSON-declared template file. Byte-for-byte
+  identical output for all 8 scenarios verified by new T26.
+- `_gen_expero_config()` and `_gen_claude_md()` build their
+  scenario-specific blocks by iterating JSON arrays instead of per-case
+  fallthrough.
 - `expero.sh` now runs under `set -euo pipefail` (was `set -e`).
   Undefined-variable access is now an error, not a silent empty string.
 - `init` is atomic: generation stages in a sibling `mktemp` dir on the

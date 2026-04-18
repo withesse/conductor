@@ -396,6 +396,74 @@ echo "$detached_out" | grep -qE "本次任务：M0-001" \
     || fail "detached project renders prompt from .expero/roles" "(empty or wrong)"
 
 echo ""
+echo "== T23: scenarios/ directory + JSON schema =="
+SCEN_DIR="$SCRIPT_DIR/scenarios"
+assert_zero  "scenarios/ dir exists"           "[ -d '$SCEN_DIR' ]"
+assert_zero  "scenarios/roadmaps/ dir exists"  "[ -d '$SCEN_DIR/roadmaps' ]"
+for s in $SCENARIOS; do
+  assert_zero "  scenarios/$s.json exists"   "[ -f '$SCEN_DIR/$s.json' ]"
+  # every JSON must declare name, active_roles, extension_roles,
+  # extra_dirs, roadmap_template — guards against schema drift.
+  for field in '"name":' '"active_roles":' '"extension_roles":' '"extra_dirs":' '"roadmap_template":'; do
+    assert_match "  $s.json has $field" "cat '$SCEN_DIR/$s.json'" "$field"
+  done
+done
+
+echo ""
+echo "== T24: _json_get_array parses scenario arrays =="
+read_array() {
+  bash -c "source '$EXPERO' >/dev/null 2>&1 && _json_get_array '$1' '$2'" 2>/dev/null
+}
+assert_eq "new-product active_roles count"       "$(read_array "$SCEN_DIR/new-product.json" active_roles | wc -l | tr -d ' ')" "5"
+assert_eq "new-product extension_roles empty"    "$(read_array "$SCEN_DIR/new-product.json" extension_roles | wc -l | tr -d ' ')" "0"
+assert_eq "legacy-analysis extension_roles cnt"  "$(read_array "$SCEN_DIR/legacy-analysis.json" extension_roles | wc -l | tr -d ' ')" "2"
+assert_eq "security-audit active first=planner"  "$(read_array "$SCEN_DIR/security-audit.json" active_roles | head -1)" "planner"
+assert_eq "security-audit active second=sentinel" "$(read_array "$SCEN_DIR/security-audit.json" active_roles | sed -n '2p')" "sentinel"
+assert_eq "greenfield-library extra_dirs cnt"    "$(read_array "$SCEN_DIR/greenfield-library.json" extra_dirs | wc -l | tr -d ' ')" "2"
+
+echo ""
+echo "== T25: init copies scenarios/ into .expero/scenarios/ =="
+assert_zero "  .expero/scenarios/ exists"             "[ -d '$TMPDIR/roles-copy/.expero/scenarios' ]"
+assert_zero "  .expero/scenarios/roadmaps/ exists"    "[ -d '$TMPDIR/roles-copy/.expero/scenarios/roadmaps' ]"
+for s in $SCENARIOS; do
+  assert_zero "  .expero/scenarios/$s.json copied"   "[ -f '$TMPDIR/roles-copy/.expero/scenarios/$s.json' ]"
+done
+assert_zero "  .expero/scenarios/roadmaps/new-product.md copied" \
+    "[ -f '$TMPDIR/roles-copy/.expero/scenarios/roadmaps/new-product.md' ]"
+
+echo ""
+echo "== T26: roadmap.md byte-regression for all scenarios =="
+# After refactor-to-JSON, every init must produce byte-identical roadmap.md
+# as the hand-written scenarios/roadmaps/*.md expects. Guards against
+# accidental trailing newline drift, placeholder substitution bugs, etc.
+for s in $SCENARIOS; do
+  bash "$EXPERO" init "$TMPDIR/byte-$s" "$s" >/dev/null 2>&1
+  roadmap_rel=$(awk -F'"' '/"roadmap_template":/{print $4; exit}' "$SCEN_DIR/$s.json")
+  src_template="$SCEN_DIR/$roadmap_rel"
+  gen_roadmap="$TMPDIR/byte-$s/.expero/docs/roadmap.md"
+  if cmp -s "$src_template" "$gen_roadmap"; then
+    pass "  $s: roadmap.md == template $(basename "$roadmap_rel")"
+  else
+    fail "  $s: roadmap.md == template" "(bytes differ — see diff below)"
+    diff "$src_template" "$gen_roadmap" | head -10
+  fi
+done
+
+echo ""
+echo "== T27: detached project can init a sub-project using .expero/scenarios =="
+# When expero.sh is copied into a project, that project becomes a valid
+# "install": the copy must be able to init another sub-project without
+# reaching back to the source repo. Simulates: user copied expero-agents/
+# somewhere and lost the source directory.
+cp -r "$TMPDIR/roles-copy" "$TMPDIR/detached-init"
+# Remove any stale EXPERO_SCRIPT_PATH-derived absolute refs by running
+# the copied script directly, not via $EXPERO.
+assert_zero "detached project can init sub-project" \
+    "cd '$TMPDIR/detached-init' && bash expero.sh init sub-proj migration"
+assert_zero "  sub-proj has roadmap.md"    "[ -f '$TMPDIR/detached-init/sub-proj/.expero/docs/roadmap.md' ]"
+assert_zero "  sub-proj has scenarios/"    "[ -d '$TMPDIR/detached-init/sub-proj/.expero/scenarios' ]"
+
+echo ""
 echo "─────────────────────────────────────────"
 TOTAL=$((PASS + FAIL))
 if [ "$FAIL" -eq 0 ]; then

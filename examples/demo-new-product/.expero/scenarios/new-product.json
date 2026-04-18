@@ -1,0 +1,8 @@
+{
+  "name": "new-product",
+  "description": "Build a new product from scratch",
+  "active_roles": ["planner", "architect", "builder", "verifier", "critic"],
+  "extension_roles": [],
+  "extra_dirs": [],
+  "roadmap_template": "roadmaps/new-product.md"
+}

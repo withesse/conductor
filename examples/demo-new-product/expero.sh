@@ -33,6 +33,18 @@ set -euo pipefail
 EXPERO_VERSION="1.0.0"
 COMMAND=${1:-help}
 
+# Resolve the absolute path of this script at load time, before any cd.
+# macOS bash 3.2 has no built-in realpath. Several helpers (_resource_root,
+# cmd_init's script-copy step) depend on this; resolving lazily after a cd
+# gives relative paths that point at the staging dir instead of the source.
+_EXPERO_SRC="${BASH_SOURCE[0]:-$0}"
+if [ -n "$_EXPERO_SRC" ] && [ -f "$_EXPERO_SRC" ]; then
+  EXPERO_SCRIPT_PATH="$(cd "$(dirname -- "$_EXPERO_SRC")" 2>/dev/null && pwd)/$(basename -- "$_EXPERO_SRC")"
+else
+  EXPERO_SCRIPT_PATH=""
+fi
+unset _EXPERO_SRC
+
 # ─────────────────────────────────────────
 # Color output
 # ─────────────────────────────────────────
@@ -113,18 +125,18 @@ cmd_init() {
   fi
 
   # Validate scenario up-front so we don't create a staging dir for an
-  # unknown scenario only to fail mid-way.
-  case $scenario in
-    new-product|migration|refactor|legacy-analysis|security-audit|tech-docs|multi-service|greenfield-library) ;;
-    *) err "Unknown scenario: '$scenario' (run 'bash $0 help' for the list)"; exit 1 ;;
-  esac
-
-  # Resolve absolute paths BEFORE any cd. macOS bash 3.2 has no built-in
-  # realpath; use dirname/basename + pwd as portable fallback.
-  local script_src=""
-  if [ -f "$0" ]; then
-    script_src="$(cd "$(dirname "$0")" 2>/dev/null && pwd)/$(basename "$0")"
+  # unknown scenario only to fail mid-way. Validity = scenarios/<name>.json
+  # exists at the current resource root.
+  local _root
+  _root=$(_resource_root)
+  if [ ! -f "$_root/scenarios/$scenario.json" ]; then
+    err "Unknown scenario: '$scenario' (run 'bash $0 help' for the list)"
+    exit 1
   fi
+
+  # Script source already resolved at load time into EXPERO_SCRIPT_PATH
+  # (see top of file). We pass it to _gen_scripts for the in-project copy.
+  local script_src=${EXPERO_SCRIPT_PATH:-}
   local parent project_name target
   parent=$(cd "$(dirname -- "$project")" 2>/dev/null && pwd) || parent=""
   project_name=$(basename -- "$project")
@@ -151,14 +163,13 @@ cmd_init() {
 
   mkdir -p "$staging/.expero" "$staging/.expero/docs/adr" "$staging/.expero/docs/specs" "$staging/.expero/docs/review" "$staging/.expero/signals"
 
-  case $scenario in
-    refactor)           mkdir -p "$staging/.expero/docs/refactor" ;;
-    legacy-analysis)    mkdir -p "$staging/.expero/docs/legacy" "$staging/.expero/docs/reverse-adr" ;;
-    security-audit)     mkdir -p "$staging/.expero/docs/security" ;;
-    tech-docs)          mkdir -p "$staging/.expero/docs/public" ;;
-    multi-service)      mkdir -p "$staging/.expero/docs/contracts" ;;
-    greenfield-library) mkdir -p "$staging/.expero/docs/public" "$staging/.expero/docs/security" ;;
-  esac
+  # Scenario-specific extra dirs (empty for scenarios that don't need
+  # any). Source is scenarios/<name>.json → "extra_dirs" array.
+  local _d
+  while IFS= read -r _d; do
+    [ -z "$_d" ] && continue
+    mkdir -p "$staging/$_d"
+  done < <(_json_get_array "$_root/scenarios/$scenario.json" extra_dirs)
 
   cd "$staging"
 
@@ -351,6 +362,39 @@ _json_get_bool() {
         s = substr($0, RSTART, RLENGTH)
         if (s ~ /true/)  { print "true";  exit }
         if (s ~ /false/) { print "false"; exit }
+      }
+    }
+  ' "$file"
+}
+
+# Extract a single-line JSON array of strings. One item per output line.
+# Example: given `"core_roles": ["a", "b"]` and key="core_roles", prints:
+#   a
+#   b
+# Limitation: expects the whole array on a single line. Scenario files
+# are hand-written to respect this format. Empty array returns empty.
+_json_get_array() {
+  local file=$1
+  local key=$2
+  [ -f "$file" ] || return
+  awk -v k="$key" '
+    {
+      pat = "\"" k "\"[[:space:]]*:[[:space:]]*\\[[^]]*\\]"
+      if (match($0, pat)) {
+        s = substr($0, RSTART, RLENGTH)
+        sub(/.*\[/, "", s)   # drop up to and including [
+        sub(/\].*/, "", s)   # drop from ] to end
+        n = split(s, arr, ",")
+        for (i = 1; i <= n; i++) {
+          item = arr[i]
+          gsub(/^[[:space:]]+/, "", item)
+          gsub(/[[:space:]]+$/, "", item)
+          # strip surrounding quotes
+          sub(/^"/, "", item)
+          sub(/"$/, "", item)
+          if (length(item) > 0) print item
+        }
+        exit
       }
     }
   ' "$file"
@@ -610,17 +654,34 @@ _count_matches_re() {
 # expero.sh is copied into a project), fall back to the source repo layout
 # (directory that contains this script). Fails hard if neither is present.
 _resource_root() {
+  # 1. Current working directory is a project (has .expero/roles/).
+  #    This branch serves `start`, `status`, `validate` from a project
+  #    and also `init` when it reaches resource lookup before `cd` to
+  #    staging.
   if [ -d ".expero/roles" ]; then
     echo ".expero"
     return
   fi
-  local script_dir
-  script_dir=$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" 2>/dev/null && pwd)
-  if [ -d "$script_dir/roles" ]; then
+  # After cd into init staging, cwd no longer matches — fall back to
+  # locations relative to the script itself.
+  local script_dir=""
+  if [ -n "${EXPERO_SCRIPT_PATH:-}" ]; then
+    script_dir=$(dirname -- "$EXPERO_SCRIPT_PATH")
+  fi
+  # 2. Script lives at the root of a generated project (copied expero.sh
+  #    next to .expero/). Used by sub-inits launched from inside a
+  #    detached project that lost the source repo.
+  if [ -n "$script_dir" ] && [ -d "$script_dir/.expero/roles" ]; then
+    echo "$script_dir/.expero"
+    return
+  fi
+  # 3. Script lives in the source repo (roles/ and scenarios/ at the
+  #    top level, no .expero/ sibling).
+  if [ -n "$script_dir" ] && [ -d "$script_dir/roles" ]; then
     echo "$script_dir"
     return
   fi
-  err "Cannot locate roles/ (tried .expero/roles and $script_dir/roles)"
+  err "Cannot locate roles/ (tried .expero/roles, ${script_dir:-<unresolved>}/.expero/roles, ${script_dir:-<unresolved>}/roles)"
   exit 1
 }
 
@@ -701,17 +762,22 @@ _build_prompt() {
 
 _gen_expero_config() {
   local scenario=$1
+  local scenario_json
+  scenario_json=$(_scenario_file "$scenario")
 
-  # Compute scenario-specific extension list BEFORE the heredoc.
-  # Embedding `$(case ...)` inside a heredoc confuses bash's paren matcher
-  # on some versions and produces literal text in the output.
+  # Build the extensions YAML block from extension_roles[] in the
+  # scenario JSON. Indentation is 4 spaces to match the surrounding
+  # `roles.extensions:` structure.
   local extensions=""
-  case $scenario in
-    legacy-analysis)    extensions=$'    - archaeologist\n    - scribe' ;;
-    security-audit)     extensions=$'    - sentinel' ;;
-    tech-docs)          extensions=$'    - scribe' ;;
-    greenfield-library) extensions=$'    - scribe\n    - sentinel' ;;
-  esac
+  local r
+  while IFS= read -r r; do
+    [ -z "$r" ] && continue
+    if [ -z "$extensions" ]; then
+      extensions="    - $r"
+    else
+      extensions="$extensions"$'\n'"    - $r"
+    fi
+  done < <(_json_get_array "$scenario_json" extension_roles)
 
   cat > .expero/config.yaml << EOF
 version: $EXPERO_VERSION
@@ -735,26 +801,55 @@ model_mapping:
 EOF
 }
 
+# Resolve the scenario JSON file path. Prefers project-local
+# .expero/scenarios/ (when running from inside a project that was already
+# initialized), falls back to source repo's scenarios/. Errors if missing.
+_scenario_file() {
+  local name=$1
+  local root
+  root=$(_resource_root)
+  local f="$root/scenarios/$name.json"
+  if [ ! -f "$f" ]; then
+    err "Unknown scenario: '$name' (no such file: $f)"
+    exit 1
+  fi
+  echo "$f"
+}
+
+# List scenario names known to the current install (basename of
+# scenarios/*.json minus the .json). Used by help and validation.
+_list_scenarios() {
+  local root
+  root=$(_resource_root) 2>/dev/null || { echo ""; return; }
+  local f
+  for f in "$root"/scenarios/*.json; do
+    [ -e "$f" ] || continue
+    local base
+    base=$(basename -- "$f" .json)
+    echo "$base"
+  done
+}
+
 _gen_claude_md() {
   local project=$1
   local scenario=$2
+  local scenario_json
+  scenario_json=$(_scenario_file "$scenario")
 
-  # Compute roles line BEFORE heredoc (same reason as _gen_expero_config).
-  local roles_line
-  case $scenario in
-    new-product|migration|refactor|multi-service)
-      roles_line="- planner, architect, builder, verifier, critic" ;;
-    legacy-analysis)
-      roles_line="- planner, architect, archaeologist, scribe" ;;
-    security-audit)
-      roles_line="- planner, sentinel, builder" ;;
-    tech-docs)
-      roles_line="- planner, architect, scribe" ;;
-    greenfield-library)
-      roles_line="- planner, architect, builder, verifier, critic, scribe, sentinel" ;;
-    *)
-      roles_line="- planner, architect, builder, verifier, critic" ;;
-  esac
+  # Build "- role1, role2, …" from active_roles[] in the scenario JSON.
+  # active_roles is the *display-ordered* list for CLAUDE.md, distinct
+  # from config.yaml's extension_roles (which omits the universal five).
+  local roles_line="-"
+  local r first=1
+  while IFS= read -r r; do
+    [ -z "$r" ] && continue
+    if [ "$first" -eq 1 ]; then
+      roles_line="- $r"
+      first=0
+    else
+      roles_line="$roles_line, $r"
+    fi
+  done < <(_json_get_array "$scenario_json" active_roles)
 
   cat > CLAUDE.md << EOF
 # $project
@@ -874,170 +969,20 @@ EOF
 
 _gen_roadmap() {
   local scenario=$1
-
-  case $scenario in
-    new-product|greenfield-library)
-      cat > .expero/docs/roadmap.md << 'EOF'
-# Roadmap
-
-## M0 — Skeleton (goal: core flow works, CI green)
-
-| ID | Task | Status | Owner | Depends | Commit |
-|----|------|--------|-------|---------|--------|
-| M0-001 | Project scaffold | todo | builder | — | |
-| M0-002 | Core infrastructure (DB/Cache/Logging) | todo | builder | M0-001 | |
-| M0-003 | Authentication flow | todo | builder | M0-002 | |
-| M0-004 | User/Role/Permission CRUD | todo | builder | M0-003 | |
-| M0-005 | Unit tests for core paths | todo | verifier | M0-003 | |
-| M0-006 | CI configuration | todo | builder | M0-005 | |
-
-**M0 Exit Criteria**
-- [ ] Build succeeds without warnings
-- [ ] End-to-end flow (login → protected endpoint) works
-- [ ] CI all green
-
----
-
-## M1 — Feature Complete
-
-| ID | Task | Status | Owner | Depends | Commit |
-|----|------|--------|-------|---------|--------|
-| M1-001 | [Business module 1] | todo | builder | M0 done | |
-
----
-
-## M2 — Performance & Quality
-## M3 — Release Preparation
-
-## Backlog
-EOF
-      ;;
-
-    migration)
-      cat > .expero/docs/roadmap.md << 'EOF'
-# Roadmap (Migration)
-
-## M0 — Skeleton
-
-| ID | Task | Status | Owner | Depends | Commit |
-|----|------|--------|-------|---------|--------|
-| M0-001 | Project scaffold | todo | builder | — | |
-| M0-002 | Core infrastructure | todo | builder | M0-001 | |
-| M0-003 | Auth migration | todo | builder | M0-002 | |
-| M0-004 | Tests + CI | todo | verifier | M0-003 | |
-
-**M0 Exit Criteria**
-- [ ] Auth flow behavioral-equivalent to source (per ADR-divergence)
-- [ ] CI all green
-
----
-
-## M1 — Module Migration
-## M2 — New Language/Framework Features
-## M3 — Frontend/Deployment
-EOF
-      ;;
-
-    refactor)
-      cat > .expero/docs/roadmap.md << 'EOF'
-# Roadmap (Refactor)
-
-## M0 — Current State Analysis
-
-| ID | Task | Status | Owner | Depends | Commit |
-|----|------|--------|-------|---------|--------|
-| M0-001 | As-is architecture analysis | todo | architect | — | |
-| M0-002 | Target architecture + ADR | todo | architect | M0-001 | |
-| M0-003 | Test coverage baseline | todo | verifier | M0-001 | |
-| M0-004 | Migration plan | todo | planner | M0-002 | |
-
----
-
-## M1 — Boundary Cleanup
-## M2 — Core Module Refactor
-## M3 — Validation
-EOF
-      ;;
-
-    legacy-analysis)
-      cat > .expero/docs/roadmap.md << 'EOF'
-# Roadmap (Legacy Analysis)
-
-## M0 — Code Reading
-
-| ID | Task | Status | Owner | Depends | Commit |
-|----|------|--------|-------|---------|--------|
-| M0-001 | Module relationship map | todo | archaeologist | — | |
-| M0-002 | Known bugs inventory | todo | archaeologist | M0-001 | |
-| M0-003 | Tech debt inventory | todo | archaeologist | M0-001 | |
-| M0-004 | Reverse ADRs | todo | archaeologist | M0-002 | |
-
----
-
-## M1 — Documentation
-## M2 — Next Steps Decision
-EOF
-      ;;
-
-    security-audit)
-      cat > .expero/docs/roadmap.md << 'EOF'
-# Roadmap (Security Audit)
-
-## M0 — Vulnerability Identification
-
-| ID | Task | Status | Owner | Depends | Commit |
-|----|------|--------|-------|---------|--------|
-| M0-001 | Auth module audit | todo | sentinel | — | |
-| M0-002 | Data access audit | todo | sentinel | — | |
-| M0-003 | Sensitive data audit | todo | sentinel | — | |
-| M0-004 | Dependency scan | todo | sentinel | — | |
-| M0-005 | Summary report | todo | sentinel | M0-004 | |
-
----
-
-## M1 — CRITICAL/HIGH Fixes
-## M2 — MEDIUM Fixes + Hardening
-EOF
-      ;;
-
-    tech-docs)
-      cat > .expero/docs/roadmap.md << 'EOF'
-# Roadmap (Tech Docs)
-
-## M0 — Inventory
-
-| ID | Task | Status | Owner | Depends | Commit |
-|----|------|--------|-------|---------|--------|
-| M0-001 | Existing docs inventory | todo | scribe | — | |
-| M0-002 | API endpoint list | todo | architect | — | |
-| M0-003 | Documentation architecture | todo | planner | M0-002 | |
-
----
-
-## M1 — Core Documents
-## M2 — Complete Documentation System
-EOF
-      ;;
-
-    multi-service)
-      cat > .expero/docs/roadmap.md << 'EOF'
-# Roadmap (Multi-Service)
-
-## M0 — Contract Discovery
-
-| ID | Task | Status | Owner | Depends | Commit |
-|----|------|--------|-------|---------|--------|
-| M0-001 | Service call chain diagram | todo | architect | — | |
-| M0-002 | Inter-service contracts | todo | architect | M0-001 | |
-| M0-003 | Test matrix | todo | planner | M0-002 | |
-
----
-
-## M1 — Contract Tests
-## M2 — E2E Tests
-EOF
-      ;;
-  esac
+  local scenario_json root template_rel template_abs
+  scenario_json=$(_scenario_file "$scenario")
+  root=$(_resource_root)
+  template_rel=$(_json_get_string "$scenario_json" roadmap_template)
+  if [ -z "$template_rel" ]; then
+    err "Scenario '$scenario' has no roadmap_template field"
+    exit 1
+  fi
+  template_abs="$root/scenarios/$template_rel"
+  if [ ! -f "$template_abs" ]; then
+    err "Roadmap template not found: $template_abs"
+    exit 1
+  fi
+  cp "$template_abs" .expero/docs/roadmap.md
 }
 
 _gen_ci_status() {
@@ -1070,13 +1015,27 @@ _gen_scripts() {
     chmod +x expero.sh
   fi
 
-  # Copy roles/ next to .expero/ inside the project. Lives under .expero/
-  # (not at project root) so agents' code-owned surface stays clean.
-  local src_root
+  # Copy sidecar resources into .expero/ so the new project is itself a
+  # valid "install" — a sub-init launched from inside it can resolve
+  # roles/scenarios without the source repo present. Source layout may be
+  # either a source checkout (top-level roles/) or another project copy
+  # (.expero/roles/), so we try both.
+  local src_root resource_src
   src_root=$(dirname -- "$script_path")
-  if [ -d "$src_root/roles" ]; then
-    mkdir -p .expero/roles
-    cp "$src_root/roles"/*.md .expero/roles/
+  if   [ -d "$src_root/roles" ];          then resource_src="$src_root"
+  elif [ -d "$src_root/.expero/roles" ];  then resource_src="$src_root/.expero"
+  else return 0
+  fi
+
+  mkdir -p .expero/roles
+  cp "$resource_src/roles"/*.md .expero/roles/
+
+  if [ -d "$resource_src/scenarios" ]; then
+    mkdir -p .expero/scenarios/roadmaps
+    cp "$resource_src/scenarios"/*.json .expero/scenarios/
+    if [ -d "$resource_src/scenarios/roadmaps" ]; then
+      cp "$resource_src/scenarios/roadmaps"/*.md .expero/scenarios/roadmaps/
+    fi
   fi
 }
 

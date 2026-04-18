@@ -1,0 +1,8 @@
+{
+  "name": "legacy-analysis",
+  "description": "Understand undocumented legacy code",
+  "active_roles": ["planner", "architect", "archaeologist", "scribe"],
+  "extension_roles": ["archaeologist", "scribe"],
+  "extra_dirs": [".expero/docs/legacy", ".expero/docs/reverse-adr"],
+  "roadmap_template": "roadmaps/legacy-analysis.md"
+}

@@ -1,0 +1,8 @@
+{
+  "name": "migration",
+  "description": "Migrate to a new language or framework",
+  "active_roles": ["planner", "architect", "builder", "verifier", "critic"],
+  "extension_roles": [],
+  "extra_dirs": [],
+  "roadmap_template": "roadmaps/migration.md"
+}

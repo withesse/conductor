@@ -1,0 +1,8 @@
+{
+  "name": "greenfield-library",
+  "description": "New open-source library",
+  "active_roles": ["planner", "architect", "builder", "verifier", "critic", "scribe", "sentinel"],
+  "extension_roles": ["scribe", "sentinel"],
+  "extra_dirs": [".expero/docs/public", ".expero/docs/security"],
+  "roadmap_template": "roadmaps/new-product.md"
+}

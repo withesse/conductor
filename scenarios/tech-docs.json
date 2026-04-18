@@ -1,0 +1,8 @@
+{
+  "name": "tech-docs",
+  "description": "Build a documentation system",
+  "active_roles": ["planner", "architect", "scribe"],
+  "extension_roles": ["scribe"],
+  "extra_dirs": [".expero/docs/public"],
+  "roadmap_template": "roadmaps/tech-docs.md"
+}
