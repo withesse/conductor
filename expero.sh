@@ -1986,6 +1986,8 @@ Examples:
   bash expero.sh start archaeologist legacy-M0-001 gemini
   bash expero.sh status
   bash expero.sh validate
+  bash expero.sh gate artifacts_valid
+  bash expero.sh gate all M0-001
   bash expero.sh restart
 
 Notes:
@@ -1994,8 +1996,12 @@ Notes:
     are not interpreted but may pollute prompt context.
   - 'validate' checks all .expero/docs/**/*.md against SPEC §5.2 schemas;
     exits non-zero if any artifact is malformed.
+  - 'gate' is exit-code-first, suitable for CI (`&& deploy`).
   - Starting a role outside the current scenario's active_roles is
     allowed but prints a warning.
+  - Claude Code users also get role Skills + Subagents at
+    .claude-plugin/ and .claude/agents/ (see docs/SKILLS.md,
+    docs/SUBAGENTS.md).
 
 Documentation: https://github.com/withesse/expero-agents
 EOF
