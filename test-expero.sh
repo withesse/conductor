@@ -280,6 +280,61 @@ mkdir -p "$TMPDIR/non-expero"
 assert_nonzero  "validate outside Expero project fails"   "cd '$TMPDIR/non-expero' && bash '$EXPERO' validate"
 
 echo ""
+echo "== T15b: signals lifecycle — resolved/ archive directory =="
+# init creates resolved/ subdir alongside signals/; README documents
+# the raise → resolve → archive three-step lifecycle.
+for s in $SCENARIOS; do
+  assert_zero "  $s has .expero/signals/resolved/" \
+      "[ -d '$TMPDIR/$s/.expero/signals/resolved' ]"
+done
+assert_match "signals README has lifecycle section" \
+    "cat '$TMPDIR/new-product/.expero/signals/README.md'" "^## Lifecycle"
+assert_match "signals README has dispatch table" \
+    "cat '$TMPDIR/new-product/.expero/signals/README.md'" "^## Dispatch"
+assert_match "  NEEDS_ARCH_REVIEW → architect" \
+    "cat '$TMPDIR/new-product/.expero/signals/README.md'" "NEEDS_ARCH_REVIEW.*architect"
+assert_match "  NEEDS_SPEC_CLARIFICATION → planner" \
+    "cat '$TMPDIR/new-product/.expero/signals/README.md'" "NEEDS_SPEC_CLARIFICATION.*planner"
+assert_match "  NEEDS_SECURITY_REVIEW → sentinel" \
+    "cat '$TMPDIR/new-product/.expero/signals/README.md'" "NEEDS_SECURITY_REVIEW.*sentinel"
+
+echo ""
+echo "== T15c: status shows dispatch hint + archived count =="
+# Reuse the signals project from T16 (which already has a signal)
+# but also add a resolved-in-place and an archived one to cover all
+# three states.
+bash "$EXPERO" init "$TMPDIR/sig-lc" new-product >/dev/null
+cat > "$TMPDIR/sig-lc/.expero/signals/M0-001-NEEDS_ARCH_REVIEW.json" << 'S'
+{"id":"M0-001","type":"NEEDS_ARCH_REVIEW","raised_by":"builder","raised_at":"2026-04-18T10:00:00Z","description":"x","resolved":false}
+S
+cat > "$TMPDIR/sig-lc/.expero/signals/M0-002-NEEDS_SEC.json" << 'S'
+{"id":"M0-002","type":"NEEDS_SECURITY_REVIEW","raised_by":"builder","raised_at":"2026-04-18T10:00:00Z","description":"y","resolved":false}
+S
+cat > "$TMPDIR/sig-lc/.expero/signals/M0-003-done.json" << 'S'
+{"id":"M0-003","type":"NEEDS_SPEC_CLARIFICATION","raised_by":"builder","raised_at":"2026-04-18T09:00:00Z","description":"z","resolved":true,"resolved_by":"planner","resolved_at":"2026-04-18T11:00:00Z"}
+S
+cat > "$TMPDIR/sig-lc/.expero/signals/resolved/M0-000-old.json" << 'S'
+{"id":"M0-000","type":"NEEDS_ARCH_REVIEW","raised_by":"planner","raised_at":"2026-04-18T08:00:00Z","description":"archived","resolved":true,"resolved_by":"architect","resolved_at":"2026-04-18T09:30:00Z"}
+S
+sig_out=$(cd "$TMPDIR/sig-lc" && bash expero.sh status 2>&1)
+echo "$sig_out" | grep -qE "NEEDS_ARCH_REVIEW:.*1.*→ dispatch to: architect" \
+    && pass "status shows 'dispatch to: architect' for arch signal" \
+    || fail "status shows 'dispatch to: architect' for arch signal" "(missing)"
+echo "$sig_out" | grep -qE "NEEDS_SECURITY_REVIEW:.*1.*→ dispatch to: sentinel" \
+    && pass "status shows 'dispatch to: sentinel' for security signal" \
+    || fail "status shows 'dispatch to: sentinel' for security signal" "(missing)"
+echo "$sig_out" | grep -qE "\(resolved, in-place\):[[:space:]]+1" \
+    && pass "status reports 1 resolved in-place" \
+    || fail "status reports 1 resolved in-place" "(wrong count)"
+echo "$sig_out" | grep -qE "\(archived in resolved/\):[[:space:]]+1" \
+    && pass "status reports 1 archived in resolved/" \
+    || fail "status reports 1 archived in resolved/" "(wrong count)"
+# Dispatch hints must NOT leak when count = 0 (avoid noise on clean state)
+echo "$sig_out" | grep -qE "NEEDS_SPEC_CLARIFICATION:[[:space:]]+0.*→" \
+    && fail "no dispatch hint when count=0" "(leaked)" \
+    || pass "no dispatch hint when count=0"
+
+echo ""
 echo "== T16: structured signals (.expero/signals/*.json) parsed by status =="
 cp -r "$TMPDIR/new-product" "$TMPDIR/signals"
 cat > "$TMPDIR/signals/.expero/signals/M0-003-NEEDS_ARCH_REVIEW.json" << 'SIG_EOF'
@@ -306,7 +361,7 @@ sig_status=$(cd "$TMPDIR/signals" && bash expero.sh status 2>&1)
 echo "$sig_status" | grep -qE 'Stop Signals \(\.expero/signals' && pass "structured signal section rendered" || fail "structured signal section rendered" "(missing header)"
 echo "$sig_status" | awk '/Stop Signals \(\.expero\/signals/,0' | grep -qE "NEEDS_ARCH_REVIEW:[[:space:]]+1" \
     && pass "1 unresolved NEEDS_ARCH_REVIEW counted" || fail "1 unresolved NEEDS_ARCH_REVIEW counted" "(miscount)"
-echo "$sig_status" | grep -qE "resolved, informational.*1"     && pass "1 resolved signal counted"        || fail "1 resolved signal counted"        "(miscount)"
+echo "$sig_status" | grep -qE "resolved, in-place.*1"          && pass "1 resolved signal counted"        || fail "1 resolved signal counted"        "(miscount)"
 echo "$sig_status" | grep -qE "Pending stop signals"           && pass "warning triggered by structured signal" || fail "warning triggered by structured signal" "(missing)"
 
 echo ""

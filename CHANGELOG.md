@@ -21,6 +21,25 @@ and the project adheres to Semantic Versioning.
   source repo.
 
 ### Added
+- `docs/DESIGN-coverage-gate.md` — design document for the deferred
+  `test_coverage` gate. Compares three strategies (Verifier-writes /
+  run-command / parse-artifact), recommends the third with fallback,
+  defines `config.yaml` schema (`coverage_file`, `coverage_format`,
+  `coverage_threshold`, `coverage_metric`), lists four phase-1 format
+  parsers (Jest, pytest, go cover, LCOV), and states implementation
+  estimate (~300 lines, 3-4 hours). No code changes in this commit —
+  pure design artifact so implementation can proceed confidently.
+- Structured stop-signal **lifecycle**: `.expero/signals/resolved/`
+  archive directory created at init, documented in
+  `.expero/signals/README.md` with the full raise → resolve → archive
+  three-step flow. `status` scans both locations and shows archived
+  count separately from resolved-in-place.
+- `status` **dispatch hints** for unresolved structured signals:
+  `NEEDS_ARCH_REVIEW → architect`, `NEEDS_SPEC_CLARIFICATION → planner`,
+  `NEEDS_SECURITY_REVIEW → sentinel`. Shown inline with the count when
+  count > 0; hidden on zero-count lines to keep the display tight.
+  Formalizes the dispatch table from the signals README as part of
+  the `status` output.
 - `expero.sh gate ci_passes` — fourth built-in Quality Gate (SPEC §4.2).
   Reads `ci_commands:` (YAML block sequence) from `config.yaml`, runs
   each command in a subshell, fails on first non-zero exit with the

@@ -178,7 +178,7 @@ cmd_init() {
   staging=$(mktemp -d "$parent/.expero-init.XXXXXX")
   trap 'rm -rf -- "$staging"' EXIT
 
-  mkdir -p "$staging/.expero" "$staging/.expero/docs/adr" "$staging/.expero/docs/specs" "$staging/.expero/docs/review" "$staging/.expero/signals"
+  mkdir -p "$staging/.expero" "$staging/.expero/docs/adr" "$staging/.expero/docs/specs" "$staging/.expero/docs/review" "$staging/.expero/signals" "$staging/.expero/signals/resolved"
 
   # Scenario-specific extra dirs (empty for scenarios that don't need
   # any). Source is scenarios/<name>.json → "extra_dirs" array.
@@ -366,15 +366,37 @@ cmd_status() {
         fi
       fi
     done
-    if [ "$unresolved_struct" -gt 0 ] || [ "$resolved_struct" -gt 0 ]; then
+    # Count archived signals (resolved/ is an audit trail — signals are
+    # moved here after resolution to keep the live directory focused on
+    # what still needs attention).
+    local archived_struct=0 asig
+    if [ -d ".expero/signals/resolved" ]; then
+      for asig in .expero/signals/resolved/*.json; do
+        [ -e "$asig" ] || continue
+        archived_struct=$((archived_struct + 1))
+      done
+    fi
+    if [ "$unresolved_struct" -gt 0 ] || [ "$resolved_struct" -gt 0 ] || [ "$archived_struct" -gt 0 ]; then
       echo ""
       echo "Stop Signals (.expero/signals/*.json):"
-      printf "  %-28s %s\n" "NEEDS_ARCH_REVIEW:"        "$s_unresolved_arch"
-      printf "  %-28s %s\n" "NEEDS_SPEC_CLARIFICATION:" "$s_unresolved_spec"
-      printf "  %-28s %s\n" "NEEDS_SECURITY_REVIEW:"    "$s_unresolved_sec"
-      printf "  %-28s %s\n" "BLOCKED_BY_*:"             "$s_unresolved_blocked"
+      # Dispatch hints: which role typically handles each signal type.
+      # Shown only when that type has unresolved count > 0, to keep the
+      # table compact when nothing is pending.
+      _dispatch_row() {
+        local label=$1 count=$2 role=$3
+        if [ "$count" -gt 0 ] && [ -n "$role" ]; then
+          printf "  %-28s %-3s → dispatch to: %s\n" "$label" "$count" "$role"
+        else
+          printf "  %-28s %s\n" "$label" "$count"
+        fi
+      }
+      _dispatch_row "NEEDS_ARCH_REVIEW:"        "$s_unresolved_arch"    "architect"
+      _dispatch_row "NEEDS_SPEC_CLARIFICATION:" "$s_unresolved_spec"    "planner"
+      _dispatch_row "NEEDS_SECURITY_REVIEW:"    "$s_unresolved_sec"     "sentinel"
+      _dispatch_row "BLOCKED_BY_*:"             "$s_unresolved_blocked" ""
       [ "$s_unresolved_other" -gt 0 ] && printf "  %-28s %s\n" "other:" "$s_unresolved_other"
-      printf "  %-28s %s\n" "(resolved, informational):" "$resolved_struct"
+      printf "  %-28s %s\n" "(resolved, in-place):"     "$resolved_struct"
+      printf "  %-28s %s\n" "(archived in resolved/):"  "$archived_struct"
     fi
   else
     # Signals directory absent (pre-v1.2 project). Emit a hint so users
@@ -1555,14 +1577,48 @@ Example: `.expero/signals/M0-003-NEEDS_ARCH_REVIEW.json`
 }
 ```
 
-Resolution: set `resolved: true`, fill `resolved_by` + `resolved_at`.
-`status` treats resolved signals as informational; unresolved signals
-trigger a warning.
+## Dispatch (which role handles which type)
+
+When the Conductor sees a pending signal, these are the default
+handlers. `status` surfaces them in its output when counts are > 0.
+
+| Signal type | Handler role | Typical resolution |
+|---|---|---|
+| `NEEDS_ARCH_REVIEW` | architect | New ADR created; roadmap note replaced with `ARCH_RESOLVED` |
+| `NEEDS_SPEC_CLARIFICATION` | planner | Spec updated; signal marked resolved |
+| `NEEDS_SECURITY_REVIEW` | sentinel | Security report filed under `.expero/docs/security/` |
+| `BLOCKED_BY_<task-id>` | (self-resolves when dependency completes) | Update when blocker finishes |
+
+## Lifecycle
+
+```
+  raise           resolve            archive
+  ─────           ───────            ────────
+  .expero/   →    .expero/      →    .expero/
+  signals/        signals/           signals/
+  <id>.json       <id>.json          resolved/<id>.json
+                  (resolved:true)    (full audit trail)
+```
+
+1. **Raise** — role writes `<task-id>-<type>.json` with `resolved: false`.
+2. **Resolve** — handler role edits the file: `resolved: true`,
+   fills `resolved_by` + `resolved_at` (UTC, ISO-8601). The file stays
+   in `signals/` for status to show as "(resolved, in-place)".
+3. **Archive** (optional but recommended) — move the file to
+   `signals/resolved/` once the milestone closes. Keeps live
+   `signals/` focused on active work while preserving audit history.
+
+`status` counts all three states separately:
+- unresolved signals trigger a warning banner
+- `(resolved, in-place)` = resolved but not yet archived
+- `(archived in resolved/)` = completed audit trail
 
 ## Backwards compatibility
 
 The roadmap-text markers (`NEEDS_ARCH_REVIEW` literal in the Notes
 column) still work. Structured signals are additive, not a replacement.
+If a signal is recorded in both forms for the same (task-id, type),
+`status` detects the overlap and notes it (avoids double-counting).
 EOF
 }
 
