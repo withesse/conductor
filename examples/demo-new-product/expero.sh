@@ -367,34 +367,56 @@ _json_get_bool() {
   ' "$file"
 }
 
-# Extract a single-line JSON array of strings. One item per output line.
-# Example: given `"core_roles": ["a", "b"]` and key="core_roles", prints:
-#   a
-#   b
-# Limitation: expects the whole array on a single line. Scenario files
-# are hand-written to respect this format. Empty array returns empty.
+# Extract a JSON array of strings, one item per output line. Supports
+# two formats:
+#   1) Single-line:  "key": ["a", "b", "c"]
+#      Array items must not themselves contain [ or ] (which would fool
+#      the bracket matcher).
+#   2) Multi-line:   "key": [
+#                      "item-1",
+#                      "item[with]brackets",
+#                      ...
+#                    ]
+#      Robust against items containing [ or ] because we parse line by
+#      line and each line carries at most one `"..."` string.
+# Empty arrays return empty output. Missing keys return empty output.
+# No dependency on jq or other JSON parsers.
 _json_get_array() {
   local file=$1
   local key=$2
   [ -f "$file" ] || return
   awk -v k="$key" '
+    BEGIN { active = 0 }
+    # End marker: a line whose only non-whitespace is ] (optionally , at end)
+    active && /^[[:space:]]*\][,]?[[:space:]]*$/ { exit }
+    # Inside the array: emit the first quoted string on the line, if any
+    active {
+      if (match($0, /"[^"]*"/)) {
+        item = substr($0, RSTART + 1, RLENGTH - 2)
+        if (length(item) > 0) print item
+      }
+      next
+    }
+    # Look for "<key>": [ — may be end-of-line (multi-line array) or
+    # may have content + closing ] on the same line (single-line array).
     {
-      pat = "\"" k "\"[[:space:]]*:[[:space:]]*\\[[^]]*\\]"
+      pat = "\"" k "\"[[:space:]]*:[[:space:]]*\\["
       if (match($0, pat)) {
-        s = substr($0, RSTART, RLENGTH)
-        sub(/.*\[/, "", s)   # drop up to and including [
-        sub(/\].*/, "", s)   # drop from ] to end
-        n = split(s, arr, ",")
-        for (i = 1; i <= n; i++) {
-          item = arr[i]
-          gsub(/^[[:space:]]+/, "", item)
-          gsub(/[[:space:]]+$/, "", item)
-          # strip surrounding quotes
-          sub(/^"/, "", item)
-          sub(/"$/, "", item)
-          if (length(item) > 0) print item
+        tail = substr($0, RSTART + RLENGTH)
+        # Single-line: strip closing ] and trailing chars, then emit
+        # each "..." item from the remainder. Works for items without
+        # embedded [ or ] (scenarios/*.json is hand-formatted this way).
+        if (match(tail, /\]/)) {
+          tail = substr(tail, 1, RSTART - 1)
+          while (match(tail, /"[^"]*"/)) {
+            item = substr(tail, RSTART + 1, RLENGTH - 2)
+            if (length(item) > 0) print item
+            tail = substr(tail, RSTART + RLENGTH)
+          }
+          exit
         }
-        exit
+        # Multi-line: start capturing subsequent lines
+        active = 1
       }
     }
   ' "$file"
@@ -524,73 +546,37 @@ _classify_artifact() {
   esac
 }
 
-# Check an artifact file against a set of required ERE patterns. Returns
-# 0 on pass, 1 on fail; prints a ✓/✗ line and per-error details.
+# Check an artifact file against a set of required ERE patterns loaded
+# from schemas/<type>.json. Returns 0 on pass, 1 on fail; prints a ✓/✗
+# line and per-error details.
+#
+# Schema JSON format (SPEC §5.2):
+#   { "name": "...", "description": "...",
+#     "required_patterns": ["pat1", "pat2", ...] }
+#
+# Patterns use ERE. For portability across JSON parsers (ours, jq,
+# future YAML-ified variants), write literal `|` as `[|]` and literal
+# `.` as `[.]` rather than `\|` / `\.`.
 _validate_artifact() {
   local f=$1
   local type=$2
-  local patterns=()
+  local root schema
+  root=$(_resource_root)
+  schema="$root/schemas/$type.json"
 
-  case "$type" in
-    adr)
-      patterns=(
-        "^# ADR-[0-9]+:"
-        "^## Status"
-        "^## Context"
-        "^## Decision"
-        "^## Consequences"
-        "^## Alternatives Considered"
-      ) ;;
-    radr)
-      patterns=(
-        "^# RADR-[0-9]+:"
-        "^## Inference Confidence"
-        "^## Evidence"
-        "^## Inferred Decision"
-        "^## Current Problems"
-      ) ;;
-    spec)
-      patterns=(
-        "^# .+ Spec"
-        "^## 1\. Config Schema"
-        "^## 2\. Data Structures"
-        "^## 3\. API Endpoints"
-        "^## 4\. Error Types"
-      ) ;;
-    test-plan)
-      patterns=(
-        "^# "
-        "\|[[:space:]]*ID[[:space:]]*\|"
-      ) ;;
-    review)
-      patterns=(
-        "^# Review:"
-        "^## Verdict"
-        "(APPROVED|CHANGES_REQUESTED)"
-        "^## ADR Compliance"
-        "^## Issues"
-      ) ;;
-    security)
-      patterns=(
-        "^# Security Audit:"
-        "^## Audit Date"
-        "^## Findings"
-        "^## Summary"
-      ) ;;
-    security-summary)
-      patterns=(
-        "^# "
-        "\|[[:space:]]*Severity[[:space:]]*\|"
-      ) ;;
-  esac
+  if [ ! -f "$schema" ]; then
+    printf "  ${RED}✗${NC} %s (%s)\n" "$f" "$type"
+    printf "      missing schema file: %s\n" "$schema"
+    return 1
+  fi
 
-  local missing=()
-  local p
-  for p in "${patterns[@]}"; do
+  local missing=() p
+  while IFS= read -r p; do
+    [ -z "$p" ] && continue
     if ! grep -qE -- "$p" "$f" 2>/dev/null; then
       missing+=("$p")
     fi
-  done
+  done < <(_json_get_array "$schema" required_patterns)
 
   if [ "${#missing[@]}" -eq 0 ]; then
     printf "  ${GREEN}✓${NC} %s (%s)\n" "$f" "$type"
@@ -1036,6 +1022,11 @@ _gen_scripts() {
     if [ -d "$resource_src/scenarios/roadmaps" ]; then
       cp "$resource_src/scenarios/roadmaps"/*.md .expero/scenarios/roadmaps/
     fi
+  fi
+
+  if [ -d "$resource_src/schemas" ]; then
+    mkdir -p .expero/schemas
+    cp "$resource_src/schemas"/*.json .expero/schemas/
   fi
 }
 

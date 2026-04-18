@@ -1,0 +1,12 @@
+{
+  "name": "radr",
+  "description": "Reverse ADR — inferred decisions from legacy code (SPEC §6.2.4)",
+  "applies_to": ".expero/docs/reverse-adr/RADR-*.md",
+  "required_patterns": [
+    "^# RADR-[0-9]+:",
+    "^## Inference Confidence",
+    "^## Evidence",
+    "^## Inferred Decision",
+    "^## Current Problems"
+  ]
+}

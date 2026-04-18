@@ -450,6 +450,36 @@ for s in $SCENARIOS; do
 done
 
 echo ""
+echo "== T26b: schemas/ directory + JSON format =="
+SCHEMA_DIR="$SCRIPT_DIR/schemas"
+assert_zero "schemas/ dir exists"   "[ -d '$SCHEMA_DIR' ]"
+for t in adr radr spec test-plan review security security-summary; do
+  assert_zero "  schemas/$t.json exists"      "[ -f '$SCHEMA_DIR/$t.json' ]"
+  for field in '"name":' '"description":' '"required_patterns":'; do
+    assert_match "  $t.json has $field" "cat '$SCHEMA_DIR/$t.json'" "$field"
+  done
+done
+
+echo ""
+echo "== T26c: _json_get_array handles multi-line arrays with [ and ] in items =="
+# Regression: the v1.0 single-line parser mis-matched [0-9] in ADR patterns.
+# Multi-line + per-line quote extraction must pass through brackets verbatim.
+adr_patterns=$(bash -c "source '$EXPERO' >/dev/null 2>&1 && _json_get_array '$SCHEMA_DIR/adr.json' required_patterns")
+assert_eq "adr pattern count is 6"                       "$(echo "$adr_patterns" | wc -l | tr -d ' ')" "6"
+assert_eq "adr first pattern preserves [0-9]+"           "$(echo "$adr_patterns" | head -1)" "^# ADR-[0-9]+:"
+spec_patterns=$(bash -c "source '$EXPERO' >/dev/null 2>&1 && _json_get_array '$SCHEMA_DIR/spec.json' required_patterns")
+assert_eq "spec pattern count is 5"                      "$(echo "$spec_patterns" | wc -l | tr -d ' ')" "5"
+assert_eq "spec preserves [.] literal dot"               "$(echo "$spec_patterns" | sed -n '2p')" "^## 1[.] Config Schema"
+testplan_patterns=$(bash -c "source '$EXPERO' >/dev/null 2>&1 && _json_get_array '$SCHEMA_DIR/test-plan.json' required_patterns")
+assert_eq "test-plan preserves [|] literal pipe"         "$(echo "$testplan_patterns" | sed -n '2p')" "[|][[:space:]]*ID[[:space:]]*[|]"
+
+echo ""
+echo "== T26d: init copies schemas/ into .expero/schemas/ =="
+for t in adr radr spec test-plan review security security-summary; do
+  assert_zero "  .expero/schemas/$t.json copied"  "[ -f '$TMPDIR/roles-copy/.expero/schemas/$t.json' ]"
+done
+
+echo ""
 echo "== T27: detached project can init a sub-project using .expero/scenarios =="
 # When expero.sh is copied into a project, that project becomes a valid
 # "install": the copy must be able to init another sub-project without

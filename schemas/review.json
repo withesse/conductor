@@ -1,0 +1,12 @@
+{
+  "name": "review",
+  "description": "Code review report (Critic output, SPEC §5.2)",
+  "applies_to": ".expero/docs/review/<task-id>.md",
+  "required_patterns": [
+    "^# Review:",
+    "^## Verdict",
+    "(APPROVED|CHANGES_REQUESTED)",
+    "^## ADR Compliance",
+    "^## Issues"
+  ]
+}

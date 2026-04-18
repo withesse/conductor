@@ -7,6 +7,20 @@ and the project adheres to Semantic Versioning.
 ## [Unreleased]
 
 ### Added
+- `schemas/` top-level directory: 7 artifact schemas as JSON
+  (`adr.json`, `radr.json`, `spec.json`, `test-plan.json`, `review.json`,
+  `security.json`, `security-summary.json`). Each declares `name`,
+  `description`, `applies_to`, and `required_patterns[]` (ERE patterns
+  checked by `validate`). Replaces the 80-line `case` block inside
+  `_validate_artifact()` — adding a new artifact type no longer requires
+  shell changes. Patterns use `[.]` / `[|]` character classes instead
+  of `\.` / `\|` for parser friendliness.
+- `init` copies `schemas/` into `.expero/schemas/`, completing the
+  roles/ + scenarios/ + schemas/ self-containment trio.
+- `_json_get_array` now handles both single-line and multi-line array
+  formats. Multi-line is required for arrays whose items contain `[`
+  or `]` (ERE patterns); single-line still works for simple string
+  arrays (scenarios/*.json).
 - `scenarios/` top-level directory: 8 scenario definitions as JSON
   (`new-product.json`, `migration.json`, …) plus `scenarios/roadmaps/`
   holding 7 roadmap templates as plain Markdown. Previously hardcoded
@@ -68,6 +82,10 @@ and the project adheres to Semantic Versioning.
   structured-signal parsing, set-u robustness, and help-line content.
 
 ### Changed
+- `_validate_artifact()` reads required section patterns from
+  `schemas/<type>.json` instead of a hardcoded bash `case`. Missing
+  schema file now produces a dedicated error rather than silently
+  passing with zero patterns.
 - Scenario validation in `init` moved from a hardcoded `case` branch to
   file-existence check (`scenarios/<name>.json`). Adding a new scenario
   no longer requires editing `expero.sh`.

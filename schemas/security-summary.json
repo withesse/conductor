@@ -1,0 +1,9 @@
+{
+  "name": "security-summary",
+  "description": "Aggregated security audit summary with CVSS severity table (SPEC §5.2)",
+  "applies_to": ".expero/docs/security/summary.md",
+  "required_patterns": [
+    "^# ",
+    "[|][[:space:]]*Severity[[:space:]]*[|]"
+  ]
+}

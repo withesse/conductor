@@ -1,0 +1,13 @@
+{
+  "name": "adr",
+  "description": "Architecture Decision Record (SPEC §5.2)",
+  "applies_to": ".expero/docs/adr/ADR-*.md",
+  "required_patterns": [
+    "^# ADR-[0-9]+:",
+    "^## Status",
+    "^## Context",
+    "^## Decision",
+    "^## Consequences",
+    "^## Alternatives Considered"
+  ]
+}

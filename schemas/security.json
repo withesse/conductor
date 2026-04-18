@@ -1,0 +1,11 @@
+{
+  "name": "security",
+  "description": "Per-module security audit report (Sentinel output, SPEC §5.2)",
+  "applies_to": ".expero/docs/security/<module>.md (excluding summary.md)",
+  "required_patterns": [
+    "^# Security Audit:",
+    "^## Audit Date",
+    "^## Findings",
+    "^## Summary"
+  ]
+}
