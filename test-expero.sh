@@ -68,6 +68,8 @@ assert_match "  table lists 8 roles (planner)"        "cat '$AGENTS_MD'" "\\| pl
 assert_match "  table lists 8 roles (archaeologist)"  "cat '$AGENTS_MD'" "\\| archaeologist +\\|"
 assert_match "  doc mentions NEEDS_ARCH_REVIEW"       "cat '$AGENTS_MD'" "NEEDS_ARCH_REVIEW"
 assert_match "  doc mentions BLOCKED_BY_"             "cat '$AGENTS_MD'" "BLOCKED_BY_"
+assert_match "  doc mentions JSON signal form"        "cat '$AGENTS_MD'" "Structured JSON in \\.expero/signals"
+assert_match "  doc mentions signals schema"          "cat '$AGENTS_MD'" "signals/README\\.md"
 
 echo ""
 echo "== T3: config.yaml embeds correct model IDs =="
@@ -478,6 +480,117 @@ echo "== T26d: init copies schemas/ into .expero/schemas/ =="
 for t in adr radr spec test-plan review security security-summary; do
   assert_zero "  .expero/schemas/$t.json copied"  "[ -f '$TMPDIR/roles-copy/.expero/schemas/$t.json' ]"
 done
+
+echo ""
+echo "== T26e: help is dynamic + project-aware =="
+# Outside a project: help must list every scenario from scenarios/*.json
+# (not from a hardcoded block). Descriptions come from each JSON's
+# "description" field — regression guards against drift where help
+# silently stops reflecting reality.
+help_out=$(bash "$EXPERO" help)
+for s in $SCENARIOS; do
+  echo "$help_out" | grep -qE "^  $s " && pass "  help lists scenario '$s'" \
+      || fail "  help lists scenario '$s'" "(missing)"
+done
+echo "$help_out" | grep -qE "Build a new product from scratch" \
+    && pass "  help shows new-product description from JSON" \
+    || fail "  help shows new-product description from JSON" "(missing)"
+echo "$help_out" | grep -qE "Systematic security review" \
+    && pass "  help shows security-audit description from JSON" \
+    || fail "  help shows security-audit description from JSON" "(missing)"
+echo "$help_out" | grep -qE "^## Current project" && \
+    fail "  help outside project omits 'Current project' block" "(leaked)" || \
+    pass "  help outside project omits 'Current project' block"
+# Inside a project: help adds a "Current project" block with scenario + active_roles
+assert_match "help inside project has Current section" \
+    "cd '$TMPDIR/new-product' && bash '$EXPERO' help" \
+    "Current project:"
+assert_match "  Current scenario shown" \
+    "cd '$TMPDIR/new-product' && bash '$EXPERO' help" \
+    "scenario:[[:space:]]+new-product"
+assert_match "  Active roles shown (planner)" \
+    "cd '$TMPDIR/new-product' && bash '$EXPERO' help" \
+    "active roles:.*planner"
+
+echo ""
+echo "== T26f: start warns when role not in scenario's active_roles =="
+# security-audit has active_roles = [planner, sentinel, builder].
+# Starting architect there must warn (not fail — user override allowed).
+bash "$EXPERO" init "$TMPDIR/warn-scen" security-audit >/dev/null
+warn_out=$(cd "$TMPDIR/warn-scen" && bash expero.sh start architect 2>&1 </dev/null | head -5)
+echo "$warn_out" | grep -qE "not in scenario 'security-audit'" \
+    && pass "start warns on non-active role" \
+    || fail "start warns on non-active role" "(no warning)"
+# Starting an active role must NOT warn
+ok_out=$(cd "$TMPDIR/warn-scen" && bash expero.sh start planner 2>&1 </dev/null | head -3)
+echo "$ok_out" | grep -qE "not in scenario" \
+    && fail "start silent on active role" "(spurious warning)" \
+    || pass "start silent on active role"
+
+echo ""
+echo "== T26g: start critic without task-id fails before 'Starting' message =="
+# Regression: F19. The misleading 'Starting critic' info line used to
+# print before the task-id check fired inside _build_prompt. Now the
+# check is up-front and the error is the first line.
+critic_out=$(cd "$TMPDIR/new-product" && bash expero.sh start critic 2>&1 </dev/null)
+first_line=$(echo "$critic_out" | grep -E "Starting|Critic requires" | head -1)
+echo "$first_line" | grep -qE "Critic requires" \
+    && pass "critic error precedes 'Starting' line" \
+    || fail "critic error precedes 'Starting' line" "(got: '$first_line')"
+
+echo ""
+echo "== T26h: restart warns on pending stop signals =="
+bash "$EXPERO" init "$TMPDIR/restart-sig" new-product >/dev/null
+# Clean restart — no warn about signals
+clean_out=$(cd "$TMPDIR/restart-sig" && bash expero.sh restart 2>&1)
+echo "$clean_out" | grep -qE "Pending stop signals at milestone" \
+    && fail "restart silent on clean state" "(spurious warning)" \
+    || pass "restart silent on clean state"
+# Inject a text marker — restart should warn
+echo "| M9-001 | probe | todo | builder | — | NEEDS_ARCH_REVIEW |" \
+    >> "$TMPDIR/restart-sig/.expero/docs/roadmap.md"
+dirty_out=$(cd "$TMPDIR/restart-sig" && bash expero.sh restart 2>&1)
+echo "$dirty_out" | grep -qE "Pending stop signals at milestone" \
+    && pass "restart warns on text marker" \
+    || fail "restart warns on text marker" "(no warning)"
+# Exit code still 0 — warning, not error
+assert_zero "restart with signals exits 0 (warning, not error)" \
+    "cd '$TMPDIR/restart-sig' && bash expero.sh restart"
+
+echo ""
+echo "== T26i: restart Next steps uses scenario's active_roles =="
+# security-audit scenario — Next steps must NOT mention 'critic' (which
+# isn't in active_roles) but MUST mention 'sentinel'.
+sec_restart=$(cd "$TMPDIR/warn-scen" && bash expero.sh restart 2>&1)
+echo "$sec_restart" | grep -qE "start sentinel" \
+    && pass "restart suggests sentinel for security-audit" \
+    || fail "restart suggests sentinel for security-audit" "(missing)"
+echo "$sec_restart" | grep -qE "start critic" \
+    && fail "restart omits critic for security-audit" "(leaked)" \
+    || pass "restart omits critic for security-audit"
+
+echo ""
+echo "== T26j: init 'Next steps' uses scenario's first active role =="
+sec_init=$(bash "$EXPERO" init "$TMPDIR/init-next" security-audit 2>&1)
+echo "$sec_init" | grep -qE "bash expero.sh start planner" \
+    && pass "init suggests planner (first active_role) for security-audit" \
+    || fail "init suggests planner for security-audit" "(wrong/missing)"
+
+echo ""
+echo "== T26k: validate reports skipped count in success line =="
+bash "$EXPERO" init "$TMPDIR/vskip" new-product >/dev/null
+# Non-matching file in adr/ — will be skipped
+echo "# random notes" > "$TMPDIR/vskip/.expero/docs/adr/notes.md"
+vskip_out=$(cd "$TMPDIR/vskip" && bash expero.sh validate 2>&1)
+echo "$vskip_out" | grep -qE "All classified artifacts valid \(1 skipped" \
+    && pass "validate OK line shows skipped count" \
+    || fail "validate OK line shows skipped count" "(missing)"
+
+echo ""
+echo "== T26l: roles/_base.md documents signals + .expero/signals/ =="
+BASE_MD="$SCRIPT_DIR/roles/_base.md"
+assert_match "  _base.md mentions .expero/signals"        "cat '$BASE_MD'" "\\.expero/signals"
+assert_match "  _base.md mentions Stop Signal text form"  "cat '$BASE_MD'" "NEEDS_ARCH_REVIEW"
 
 echo ""
 echo "== T27: detached project can init a sub-project using .expero/scenarios =="

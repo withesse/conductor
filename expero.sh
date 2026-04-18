@@ -195,7 +195,12 @@ cmd_init() {
   echo ""
   echo "Next steps:"
   echo "  cd $project"
-  echo "  bash expero.sh start architect"
+  # Suggest the scenario's first active role (the natural entry point
+  # for that scenario — architect for new-product, sentinel for
+  # security-audit, archaeologist for legacy-analysis, etc.).
+  local first_role
+  first_role=$(_json_get_array "$target/.expero/scenarios/$scenario.json" active_roles | head -1)
+  echo "  bash expero.sh start ${first_role:-architect}"
   echo "  bash expero.sh status"
 }
 
@@ -215,8 +220,32 @@ cmd_start() {
     exit 1
   fi
 
+  # Critic hard-requires a task-id. Check up-front so the user sees the
+  # real error instead of a misleading "Starting critic..." line followed
+  # by the real error from _build_prompt.
+  if [ "$role" = "critic" ] && [ -z "$task_id" ]; then
+    err "Critic requires a task-id (second argument to 'start')"
+    exit 1
+  fi
+
   local model
   model=$(model_for_role "$role" "$tool")
+
+  # Warn (don't fail) when the role is outside the current scenario's
+  # active_roles. Keeps the door open for override ("I know what I'm
+  # doing — let me call Architect in a security-audit") while surfacing
+  # the scenario-boundary mismatch. No check when not inside a project.
+  local current_scen
+  current_scen=$(_current_scenario)
+  if [ -n "$current_scen" ]; then
+    local in_scenario=0 r
+    while IFS= read -r r; do
+      [ "$r" = "$role" ] && { in_scenario=1; break; }
+    done < <(_active_roles_for_scenario "$current_scen")
+    if [ "$in_scenario" -eq 0 ]; then
+      warn "Role '$role' is not in scenario '$current_scen' active_roles — proceeding anyway"
+    fi
+  fi
 
   info "Starting $role (model: $model, tool: $tool)"
 
@@ -289,12 +318,14 @@ cmd_status() {
   # Structured signals: .expero/signals/*.json, parsed without jq.
   # Format documented in .expero/signals/README.md.
   local unresolved_struct=0 resolved_struct=0
+  local dup_pairs=0
   if [ -d ".expero/signals" ]; then
     local s_unresolved_arch=0 s_unresolved_spec=0 s_unresolved_sec=0 s_unresolved_blocked=0 s_unresolved_other=0
     local sig
     for sig in .expero/signals/*.json; do
       [ -e "$sig" ] || continue
-      local stype sresolved
+      local sid stype sresolved
+      sid=$(_json_get_string "$sig" id)
       stype=$(_json_get_string "$sig" type)
       sresolved=$(_json_get_bool "$sig" resolved)
       if [ "$sresolved" = "true" ]; then
@@ -309,6 +340,14 @@ cmd_status() {
         BLOCKED_BY_*)             s_unresolved_blocked=$((s_unresolved_blocked + 1)) ;;
         *)                        s_unresolved_other=$((s_unresolved_other + 1)) ;;
       esac
+      # Overlap detection: does roadmap.md contain a line that has BOTH
+      # this signal's task-id AND this signal's type? Used for the
+      # dedup hint below. Only counted for unresolved signals.
+      if [ -n "$sid" ] && [ -n "$stype" ] && [ -f .expero/docs/roadmap.md ]; then
+        if grep -qE -- "\|[[:space:]]*${sid}[[:space:]]*\|.*${stype}" .expero/docs/roadmap.md 2>/dev/null; then
+          dup_pairs=$((dup_pairs + 1))
+        fi
+      fi
     done
     if [ "$unresolved_struct" -gt 0 ] || [ "$resolved_struct" -gt 0 ]; then
       echo ""
@@ -320,6 +359,22 @@ cmd_status() {
       [ "$s_unresolved_other" -gt 0 ] && printf "  %-28s %s\n" "other:" "$s_unresolved_other"
       printf "  %-28s %s\n" "(resolved, informational):" "$resolved_struct"
     fi
+  else
+    # Signals directory absent (pre-v1.2 project). Emit a hint so users
+    # know the feature exists.
+    local total_text=$((arch_review + spec_clar + sec_review))
+    if [ "$total_text" -eq 0 ]; then
+      echo "  (no structured signals; see .expero/signals/README.md)"
+    fi
+  fi
+
+  # If any unresolved signal exists as both a text marker and a JSON
+  # file for the same (task-id, type), call that out. Not a bug, just
+  # something users should know so they don't think they have twice as
+  # many outstanding issues as they actually do.
+  if [ "$dup_pairs" -gt 0 ]; then
+    echo ""
+    printf "  %s\n" "note: $dup_pairs signal(s) recorded in both forms (same task-id + type)"
   fi
 
   if [ "$arch_review" -gt 0 ] || [ "$spec_clar" -gt 0 ] || [ "$sec_review" -gt 0 ] || [ "$unresolved_struct" -gt 0 ]; then
@@ -442,22 +497,70 @@ cmd_restart() {
     fi
   done
 
-  echo ""
-  if [ "$all_ok" = true ]; then
-    ok "Document check passed"
+  if [ "$all_ok" != true ]; then
     echo ""
-    echo "Next steps:"
-    echo "  1. Close all agent terminals"
-    echo "  2. Start new terminals for next milestone:"
-    echo "     bash expero.sh start architect"
-    echo "     bash expero.sh start planner"
-    echo "     bash expero.sh start builder <task-id>"
-    echo "     bash expero.sh start verifier <task-id>"
-    echo "     bash expero.sh start critic <task-id>"
-  else
     err "Fix missing documents before restarting agents"
     exit 1
   fi
+
+  # Warn on unresolved stop signals. A milestone boundary with pending
+  # NEEDS_ARCH_REVIEW / NEEDS_SPEC_CLARIFICATION / NEEDS_SECURITY_REVIEW
+  # usually means the signals should be addressed before moving on — but
+  # the Conductor gets the final call, so this is a warning, not a block.
+  local text_signals struct_signals total_pending
+  text_signals=$(_count_matches "NEEDS_ARCH_REVIEW"       .expero/docs/roadmap.md)
+  text_signals=$((text_signals + $(_count_matches "NEEDS_SPEC_CLARIFICATION" .expero/docs/roadmap.md)))
+  text_signals=$((text_signals + $(_count_matches "NEEDS_SECURITY_REVIEW"    .expero/docs/roadmap.md)))
+  struct_signals=$(_count_unresolved_struct_signals)
+  total_pending=$((text_signals + struct_signals))
+
+  echo ""
+  if [ "$total_pending" -gt 0 ]; then
+    warn "Pending stop signals at milestone boundary:"
+    [ "$text_signals"   -gt 0 ] && echo "    roadmap.md text markers:    $text_signals"
+    [ "$struct_signals" -gt 0 ] && echo "    .expero/signals/*.json:     $struct_signals"
+    echo "    Consider resolving before restarting. Run 'bash expero.sh status' for details."
+    echo ""
+  fi
+
+  ok "Document check passed"
+  echo ""
+  echo "Next steps:"
+  echo "  1. Close all agent terminals"
+  echo "  2. Start new terminals for next milestone:"
+
+  # Suggest start commands for the scenario's active_roles. Falls back
+  # to a generic hint when we can't read the scenario (e.g. corrupted
+  # config.yaml). Critic and task-bearing roles get a <task-id>
+  # placeholder; others get the bare role name.
+  local current_scen r
+  current_scen=$(_current_scenario)
+  if [ -n "$current_scen" ]; then
+    while IFS= read -r r; do
+      [ -z "$r" ] && continue
+      case "$r" in
+        critic|builder|verifier) echo "     bash expero.sh start $r <task-id>" ;;
+        *)                       echo "     bash expero.sh start $r" ;;
+      esac
+    done < <(_active_roles_for_scenario "$current_scen")
+  else
+    echo "     bash expero.sh start <role> [task-id]"
+  fi
+}
+
+# Count unresolved structured signals (.expero/signals/*.json with
+# "resolved": false). Used by cmd_restart and cmd_status. Emits a single
+# integer on stdout.
+_count_unresolved_struct_signals() {
+  local n=0 sig
+  [ -d ".expero/signals" ] || { echo 0; return; }
+  for sig in .expero/signals/*.json; do
+    [ -e "$sig" ] || continue
+    local resolved
+    resolved=$(_json_get_bool "$sig" resolved)
+    [ "$resolved" = "true" ] || n=$((n + 1))
+  done
+  echo "$n"
 }
 
 # ─────────────────────────────────────────
@@ -528,7 +631,11 @@ cmd_validate() {
     exit 1
   fi
   echo ""
-  ok "All artifacts valid"
+  if [ "$skipped" -gt 0 ]; then
+    ok "All classified artifacts valid ($skipped skipped — no schema for that path)"
+  else
+    ok "All artifacts valid"
+  fi
 }
 
 # Classify an artifact path to a schema key. Empty = no schema registered.
@@ -816,6 +923,57 @@ _list_scenarios() {
   done
 }
 
+# List role names known to the current install (basename of roles/*.md
+# minus the .md, excluding the _base shared preamble).
+_list_roles() {
+  local root
+  root=$(_resource_root) 2>/dev/null || { echo ""; return; }
+  local f
+  for f in "$root"/roles/*.md; do
+    [ -e "$f" ] || continue
+    local base
+    base=$(basename -- "$f" .md)
+    [ "$base" = "_base" ] && continue
+    echo "$base"
+  done
+}
+
+# Short English description for each role, shown in `help`. Kept as a
+# bash case rather than a JSON field because role descriptions are part
+# of the CLI UX contract — they change rarely and centralizing them here
+# avoids invented formats (frontmatter, separate description files).
+_description_for_role() {
+  case "$1" in
+    architect)     echo "Architecture decisions, ADRs" ;;
+    planner)       echo "Roadmap, task coordination" ;;
+    builder)       echo "Code implementation" ;;
+    verifier)      echo "Test plans, CI status" ;;
+    critic)        echo "Code review" ;;
+    sentinel)      echo "Security audit" ;;
+    scribe)        echo "Public documentation" ;;
+    archaeologist) echo "Legacy code analysis" ;;
+    *)             echo "(no description)" ;;
+  esac
+}
+
+# Read the scenario name of the *current* project, or empty if not in a
+# project. Used by help, restart, and start to become project-aware.
+_current_scenario() {
+  [ -f ".expero/config.yaml" ] || { echo ""; return; }
+  awk '/^scenario:/{print $2; exit}' .expero/config.yaml
+}
+
+# Read the active_roles[] of a scenario (comma-separated for display
+# use, newline-separated for iteration). Two wrappers for clarity.
+_active_roles_for_scenario() {
+  local scenario=$1
+  local root f
+  root=$(_resource_root) 2>/dev/null || return
+  f="$root/scenarios/$scenario.json"
+  [ -f "$f" ] || return
+  _json_get_array "$f" active_roles
+}
+
 _gen_claude_md() {
   local project=$1
   local scenario=$2
@@ -928,28 +1086,54 @@ Full ownership matrix: see SPEC.md §5.3.
 
 ## Stop Signal Syntax
 
-When a role hits an issue outside its authority, it MUST halt and write
-a stop signal into the Notes column (last column) of its row in
-.expero/docs/roadmap.md. Example:
+When a role hits an issue outside its authority, it MUST halt and record
+a stop signal. Two forms are supported — pick one, or record both for
+belt-and-braces.
+
+### Form A: Text marker in roadmap.md (always supported)
+
+Append the signal keyword to the Notes column (last column) of the row:
 
     | M0-001 | Auth flow | in-progress | builder | — | NEEDS_ARCH_REVIEW: JWT library undecided |
 
-Valid signals (must be UPPERCASE with underscores):
+Valid signals (UPPERCASE with underscores):
 
 - NEEDS_ARCH_REVIEW         — architecture question not covered by any ADR
 - NEEDS_SPEC_CLARIFICATION  — spec ambiguity blocks implementation
 - NEEDS_SECURITY_REVIEW     — security-relevant change requires Sentinel
 - BLOCKED_BY_<task-id>      — cannot proceed until another task completes
 
-The Conductor (human) detects pending signals via:
+### Form B: Structured JSON in .expero/signals/ (preferred for rich context)
 
-    bash expero.sh status
-    # or manually:
-    grep -E 'NEEDS_|BLOCKED_BY_' .expero/docs/roadmap.md
+Create `.expero/signals/<task-id>-<TYPE>.json`:
 
-Resolution: the responsible role (Architect for NEEDS_ARCH_REVIEW, etc.)
-handles the issue, replaces the signal with the keyword suffix _RESOLVED
-(e.g. ARCH_RESOLVED), and the original role resumes.
+    {
+      "id":          "M0-001",
+      "type":        "NEEDS_ARCH_REVIEW",
+      "raised_by":   "builder",
+      "raised_at":   "2026-04-17T12:00:00Z",
+      "description": "JWT library choice not covered by any ADR",
+      "resolved":    false,
+      "resolved_by": null,
+      "resolved_at": null
+    }
+
+Full schema in `.expero/signals/README.md`. Structured signals survive
+roadmap edits, carry a full description and timestamp, and are counted
+separately in `status`.
+
+### Detection + resolution
+
+    bash expero.sh status                    # groups both forms
+    bash expero.sh restart                   # warns at milestone boundary
+
+Resolution:
+- Text: replace `NEEDS_ARCH_REVIEW` with `ARCH_RESOLVED` (etc.) in the row.
+- JSON: set `"resolved": true` + fill `resolved_by` / `resolved_at`.
+
+The Conductor (human) routes signals to the responsible role:
+Architect for NEEDS_ARCH_REVIEW, Planner for NEEDS_SPEC_CLARIFICATION,
+Sentinel for NEEDS_SECURITY_REVIEW.
 EOF
 }
 
@@ -1130,42 +1314,72 @@ EOF
 # help
 # ─────────────────────────────────────────
 cmd_help() {
-  cat << EOF
-Expero Agents v$EXPERO_VERSION
+  echo "Expero Agents v$EXPERO_VERSION"
+  echo ""
+  echo "Commands:"
+  echo "  init <name> <scenario>    Initialize a new project"
+  echo "  start <role> [task-id]    Launch an agent"
+  echo "  status                    Show project state"
+  echo "  validate [path]           Check artifacts against SPEC §5.2 schemas"
+  echo "  restart                   Milestone boundary checklist"
+  echo "  help                      Show this help"
+  echo ""
 
-Commands:
-  init <name> <scenario>    Initialize a new project
-  start <role> [task-id]    Launch an agent
-  status                    Show project state
-  validate [path]           Check artifacts against SPEC §5.2 schemas
-  restart                   Milestone boundary checklist
-  help                      Show this help
+  # Scenarios — dynamic from scenarios/*.json. Adding a scenario file
+  # causes it to appear here automatically (EXTENDING.md promise).
+  echo "Scenarios:"
+  local s
+  while IFS= read -r s; do
+    [ -z "$s" ] && continue
+    local desc root
+    root=$(_resource_root 2>/dev/null) || root=""
+    desc=$(_json_get_string "$root/scenarios/$s.json" description)
+    printf "  %-20s %s\n" "$s" "${desc:-(no description)}"
+  done < <(_list_scenarios)
+  echo ""
 
-Scenarios:
-  new-product          Build a new product from scratch
-  migration            Migrate to new language/framework
-  refactor             Refactor existing codebase
-  legacy-analysis      Understand legacy code
-  security-audit       Systematic security review
-  tech-docs            Build documentation system
-  multi-service        Multi-service integration
-  greenfield-library   New open-source library
+  # Roles — dynamic from roles/*.md. Tier + description still live in
+  # bash functions; role description is part of the CLI UX contract.
+  echo "Roles (with default tier):"
+  local r
+  while IFS= read -r r; do
+    [ -z "$r" ] && continue
+    local tier desc
+    tier=$(tier_for_role "$r" 2>/dev/null) || tier="?"
+    desc=$(_description_for_role "$r")
+    printf "  %-14s %-38s (%s)\n" "$r" "$desc" "$tier"
+  done < <(_list_roles)
+  echo ""
 
-Roles (with default tier):
-  architect     Architecture decisions, ADRs          (reasoning)
-  planner       Roadmap, task coordination            (execution)
-  builder       Code implementation                   (execution)
-  verifier      Test plans, CI status                 (template)
-  critic        Code review                           (execution)
-  sentinel      Security audit                        (reasoning)
-  scribe        Public documentation                  (execution)
-  archaeologist Legacy code analysis                  (reasoning)
+  echo "Tools (3rd arg to 'start'):"
+  echo "  claude (default)   Anthropic Claude Code"
+  echo "  codex              OpenAI Codex / GPT-5.4 series"
+  echo "  gemini             Google Gemini CLI / 3.x series"
+  echo ""
 
-Tools (3rd arg to 'start'):
-  claude (default)   Anthropic Claude Code
-  codex              OpenAI Codex / GPT-5.4 series
-  gemini             Google Gemini CLI / 3.x series
+  # Project-aware block: if we're inside an initialized project, surface
+  # the current scenario + its active_roles. Lets users see at a glance
+  # which roles `start` will not warn about in this context.
+  local current
+  current=$(_current_scenario)
+  if [ -n "$current" ]; then
+    echo "Current project:"
+    printf "  %-20s %s\n" "scenario:" "$current"
+    local roles_line first=1 r2
+    roles_line=""
+    while IFS= read -r r2; do
+      [ -z "$r2" ] && continue
+      if [ "$first" -eq 1 ]; then
+        roles_line="$r2"; first=0
+      else
+        roles_line="$roles_line, $r2"
+      fi
+    done < <(_active_roles_for_scenario "$current")
+    printf "  %-20s %s\n" "active roles:" "${roles_line:-(none declared)}"
+    echo ""
+  fi
 
+  cat << 'EOF'
 Examples:
   bash expero.sh init my-app new-product
   bash expero.sh start architect
@@ -1178,10 +1392,12 @@ Examples:
 
 Notes:
   - <task-id> is embedded verbatim into the agent prompt; restrict it to
-    [A-Za-z0-9._-]. Shell metacharacters (\$, \`, |, <, >, &, ;, spaces)
+    [A-Za-z0-9._-]. Shell metacharacters ($, `, |, <, >, &, ;, spaces)
     are not interpreted but may pollute prompt context.
   - 'validate' checks all .expero/docs/**/*.md against SPEC §5.2 schemas;
     exits non-zero if any artifact is malformed.
+  - Starting a role outside the current scenario's active_roles is
+    allowed but prints a warning.
 
 Documentation: https://github.com/withesse/expero-agents
 EOF

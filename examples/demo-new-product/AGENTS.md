@@ -35,25 +35,51 @@ Full ownership matrix: see SPEC.md §5.3.
 
 ## Stop Signal Syntax
 
-When a role hits an issue outside its authority, it MUST halt and write
-a stop signal into the Notes column (last column) of its row in
-.expero/docs/roadmap.md. Example:
+When a role hits an issue outside its authority, it MUST halt and record
+a stop signal. Two forms are supported — pick one, or record both for
+belt-and-braces.
+
+### Form A: Text marker in roadmap.md (always supported)
+
+Append the signal keyword to the Notes column (last column) of the row:
 
     | M0-001 | Auth flow | in-progress | builder | — | NEEDS_ARCH_REVIEW: JWT library undecided |
 
-Valid signals (must be UPPERCASE with underscores):
+Valid signals (UPPERCASE with underscores):
 
 - NEEDS_ARCH_REVIEW         — architecture question not covered by any ADR
 - NEEDS_SPEC_CLARIFICATION  — spec ambiguity blocks implementation
 - NEEDS_SECURITY_REVIEW     — security-relevant change requires Sentinel
 - BLOCKED_BY_<task-id>      — cannot proceed until another task completes
 
-The Conductor (human) detects pending signals via:
+### Form B: Structured JSON in .expero/signals/ (preferred for rich context)
 
-    bash expero.sh status
-    # or manually:
-    grep -E 'NEEDS_|BLOCKED_BY_' .expero/docs/roadmap.md
+Create `.expero/signals/<task-id>-<TYPE>.json`:
 
-Resolution: the responsible role (Architect for NEEDS_ARCH_REVIEW, etc.)
-handles the issue, replaces the signal with the keyword suffix _RESOLVED
-(e.g. ARCH_RESOLVED), and the original role resumes.
+    {
+      "id":          "M0-001",
+      "type":        "NEEDS_ARCH_REVIEW",
+      "raised_by":   "builder",
+      "raised_at":   "2026-04-17T12:00:00Z",
+      "description": "JWT library choice not covered by any ADR",
+      "resolved":    false,
+      "resolved_by": null,
+      "resolved_at": null
+    }
+
+Full schema in `.expero/signals/README.md`. Structured signals survive
+roadmap edits, carry a full description and timestamp, and are counted
+separately in `status`.
+
+### Detection + resolution
+
+    bash expero.sh status                    # groups both forms
+    bash expero.sh restart                   # warns at milestone boundary
+
+Resolution:
+- Text: replace `NEEDS_ARCH_REVIEW` with `ARCH_RESOLVED` (etc.) in the row.
+- JSON: set `"resolved": true` + fill `resolved_by` / `resolved_at`.
+
+The Conductor (human) routes signals to the responsible role:
+Architect for NEEDS_ARCH_REVIEW, Planner for NEEDS_SPEC_CLARIFICATION,
+Sentinel for NEEDS_SECURITY_REVIEW.

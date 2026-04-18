@@ -7,6 +7,44 @@ and the project adheres to Semantic Versioning.
 ## [Unreleased]
 
 ### Added
+- `help` becomes data-driven and project-aware: Scenarios and Roles
+  sections now read from `scenarios/*.json` (description field) and
+  `roles/*.md` respectively. Adding a new scenario or role causes it
+  to appear in `help` automatically, fulfilling EXTENDING.md's promise.
+  When run inside a project, `help` additionally shows a `Current
+  project` block with scenario name and active_roles.
+- `start` now warns (doesn't fail) when the role is not in the current
+  scenario's `active_roles`. Surfaces scenario-boundary mismatches
+  without removing the Conductor's ability to override.
+- `restart` now warns on pending stop signals at milestone boundary
+  (roadmap.md text markers + unresolved `.expero/signals/*.json`),
+  reporting per-form counts. Warning only — does not block restart.
+- `restart` "Next steps" lists the current scenario's `active_roles`
+  instead of the hardcoded universal-five sequence. Correctly suggests
+  `start sentinel` for security-audit instead of the nonexistent
+  `start critic`, for example.
+- `init` "Next steps" suggests the scenario's first `active_role`
+  instead of always `architect`.
+- `status` emits a dedup note when a signal is recorded in both forms
+  for the same (task-id, type) pair, preventing the "I have twice as
+  many outstanding issues as I actually do" misreading.
+- `status` hint: when `.expero/signals/` is absent (pre-v1.2 projects),
+  points users at `signals/README.md`.
+- `validate` success message now states how many files were skipped
+  for lacking a schema: "All classified artifacts valid (N skipped)".
+- `roles/_base.md` preamble now tells every role to check
+  `.expero/signals/*.json` at start, and documents both text and JSON
+  signal forms (pick one, both is fine).
+- AGENTS.md Stop Signal section now documents the structured JSON
+  form (Form B) alongside the existing text-marker form (Form A).
+  Previously only Form A was documented, despite JSON signals being a
+  v1.2 feature.
+
+### Changed
+- `cmd_start` validates `critic` requires task-id up-front. Previously
+  the misleading "Starting critic…" info line printed before
+  `_build_prompt` surfaced the real error. Now the error is the first
+  line and no tool is invoked.
 - `docs/ARCHITECTURE.md` — describes the post-refactor layout:
   `expero.sh` = scaffolding, `roles/` + `scenarios/` + `schemas/` =
   declarative data, `.expero/*` = self-contained project copy. Covers
