@@ -593,6 +593,154 @@ assert_match "  _base.md mentions .expero/signals"        "cat '$BASE_MD'" "\\.e
 assert_match "  _base.md mentions Stop Signal text form"  "cat '$BASE_MD'" "NEEDS_ARCH_REVIEW"
 
 echo ""
+echo "== T26m: gate command — artifacts_valid =="
+bash "$EXPERO" init "$TMPDIR/gate-arts" new-product >/dev/null
+# Empty project: no artifacts → pass
+assert_zero "gate artifacts_valid passes on empty project" \
+    "cd '$TMPDIR/gate-arts' && bash expero.sh gate artifacts_valid"
+# Add a valid ADR
+cat > "$TMPDIR/gate-arts/.expero/docs/adr/ADR-0001.md" << 'ADR'
+# ADR-0001: Good
+## Status
+Accepted
+## Context
+x
+## Decision
+y
+## Consequences
+### Positive
+### Negative
+### Neutral
+## Alternatives Considered
+z
+ADR
+assert_zero "gate artifacts_valid passes with valid ADR" \
+    "cd '$TMPDIR/gate-arts' && bash expero.sh gate artifacts_valid"
+# Add a malformed ADR
+cat > "$TMPDIR/gate-arts/.expero/docs/adr/ADR-0002.md" << 'BAD'
+# ADR-0002: Bad
+## Status
+Draft
+BAD
+assert_nonzero "gate artifacts_valid fails with invalid ADR" \
+    "cd '$TMPDIR/gate-arts' && bash expero.sh gate artifacts_valid"
+assert_match   "  output includes ✗ FAIL banner" \
+    "cd '$TMPDIR/gate-arts' && bash expero.sh gate artifacts_valid" \
+    "✗ FAIL"
+
+echo ""
+echo "== T26n: gate command — adr_compliance =="
+bash "$EXPERO" init "$TMPDIR/gate-adr" new-product >/dev/null
+# Missing task-id
+assert_nonzero "gate adr_compliance without task-id fails" \
+    "cd '$TMPDIR/gate-adr' && bash expero.sh gate adr_compliance"
+# No review yet → fail
+assert_nonzero "gate adr_compliance fails when review missing" \
+    "cd '$TMPDIR/gate-adr' && bash expero.sh gate adr_compliance M0-001"
+# APPROVED review → pass
+cat > "$TMPDIR/gate-adr/.expero/docs/review/M0-001.md" << 'RV'
+# Review: M0-001
+
+## Verdict
+APPROVED
+
+## ADR Compliance
+- [x] ADR-0001
+
+## Issues
+| Severity | Location | Description | Suggestion |
+RV
+assert_zero "gate adr_compliance passes with APPROVED review" \
+    "cd '$TMPDIR/gate-adr' && bash expero.sh gate adr_compliance M0-001"
+# CHANGES_REQUESTED → fail
+cat > "$TMPDIR/gate-adr/.expero/docs/review/M0-002.md" << 'RV'
+# Review: M0-002
+
+## Verdict
+CHANGES_REQUESTED
+
+## ADR Compliance
+
+## Issues
+| Severity | Location | Description | Suggestion |
+RV
+assert_nonzero "gate adr_compliance fails with CHANGES_REQUESTED" \
+    "cd '$TMPDIR/gate-adr' && bash expero.sh gate adr_compliance M0-002"
+assert_match   "  output mentions required APPROVED" \
+    "cd '$TMPDIR/gate-adr' && bash expero.sh gate adr_compliance M0-002" \
+    "required: APPROVED"
+
+echo ""
+echo "== T26o: gate command — security_clean =="
+bash "$EXPERO" init "$TMPDIR/gate-sec" security-audit >/dev/null
+# No summary file → gate passes by default
+assert_zero "gate security_clean passes when summary absent" \
+    "cd '$TMPDIR/gate-sec' && bash expero.sh gate security_clean"
+# Summary without CRITICAL row → pass
+cat > "$TMPDIR/gate-sec/.expero/docs/security/summary.md" << 'SEC'
+# Security Audit Summary
+| Severity | Count |
+|----------|-------|
+| HIGH | 2 |
+| MEDIUM | 4 |
+SEC
+assert_zero "gate security_clean passes without CRITICAL row" \
+    "cd '$TMPDIR/gate-sec' && bash expero.sh gate security_clean"
+# Summary with CRITICAL → fail
+cat > "$TMPDIR/gate-sec/.expero/docs/security/summary.md" << 'SEC'
+# Security Audit Summary
+| Severity | Count |
+|----------|-------|
+| CRITICAL | 2 |
+SEC
+assert_nonzero "gate security_clean fails on CRITICAL row" \
+    "cd '$TMPDIR/gate-sec' && bash expero.sh gate security_clean"
+assert_match   "  output shows CRITICAL count" \
+    "cd '$TMPDIR/gate-sec' && bash expero.sh gate security_clean" \
+    "1 CRITICAL finding"
+
+echo ""
+echo "== T26p: gate all meta-gate =="
+bash "$EXPERO" init "$TMPDIR/gate-all" new-product >/dev/null
+# Fresh project: no artifacts, no review, no security → passes
+assert_zero "gate all passes on fresh project (no task)" \
+    "cd '$TMPDIR/gate-all' && bash expero.sh gate all"
+# Add approved review for M0-001
+cat > "$TMPDIR/gate-all/.expero/docs/review/M0-001.md" << 'RV'
+# Review: M0-001
+## Verdict
+APPROVED
+## ADR Compliance
+## Issues
+RV
+assert_zero "gate all with task-id passes when every check passes" \
+    "cd '$TMPDIR/gate-all' && bash expero.sh gate all M0-001"
+assert_match "  summary line reports all N gates passed" \
+    "cd '$TMPDIR/gate-all' && bash expero.sh gate all M0-001" \
+    "All 3 gates passed"
+# Break artifacts_valid → all should fail
+cat > "$TMPDIR/gate-all/.expero/docs/adr/ADR-bad.md" << 'BAD'
+# ADR-bad: missing sections
+## Status
+Draft
+BAD
+assert_nonzero "gate all fails when any gate fails" \
+    "cd '$TMPDIR/gate-all' && bash expero.sh gate all M0-001"
+assert_match   "  summary reports failure count" \
+    "cd '$TMPDIR/gate-all' && bash expero.sh gate all M0-001" \
+    "1 of 3 gates failed"
+
+echo ""
+echo "== T26q: gate unknown name fails + help lists gates =="
+assert_nonzero "gate unknown_gate exits non-zero" \
+    "cd '$TMPDIR/gate-all' && bash expero.sh gate unknown_gate"
+assert_match "help lists gate command"      "bash '$EXPERO' help" "gate <name>"
+assert_match "help lists artifacts_valid"   "bash '$EXPERO' help" "artifacts_valid"
+assert_match "help lists adr_compliance"    "bash '$EXPERO' help" "adr_compliance"
+assert_match "help lists security_clean"    "bash '$EXPERO' help" "security_clean"
+assert_match "help lists all meta-gate"     "bash '$EXPERO' help" "^  all "
+
+echo ""
 echo "== T27: detached project can init a sub-project using .expero/scenarios =="
 # When expero.sh is copied into a project, that project becomes a valid
 # "install": the copy must be able to init another sub-project without

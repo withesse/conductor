@@ -638,6 +638,184 @@ cmd_validate() {
   fi
 }
 
+# ─────────────────────────────────────────
+# gate: SPEC §4.2 Quality Gate executor
+# ─────────────────────────────────────────
+# Gates are structural checkpoints that must pass before a milestone
+# can close. Each is a cheap, deterministic, exit-code-first check that
+# fits into CI pipelines (`bash expero.sh gate X && deploy`).
+#
+# Implemented in v1.x:
+#   - artifacts_valid  (delegates to `validate`)
+#   - adr_compliance   (reads Critic's review for this task)
+#   - security_clean   (no CRITICAL in security summary)
+#   - all              (meta-gate: runs all applicable)
+#
+# Deferred to v2.0.2 (see ROADMAP):
+#   - ci_passes        (needs config.yaml `ci_commands` schema)
+#   - test_coverage    (needs a coverage tool adapter)
+cmd_gate() {
+  local gate_name=${1:?"gate name required"}
+  local task_id=${2:-}
+
+  if [ ! -f ".expero/config.yaml" ]; then
+    err "Not an Expero project (missing .expero/config.yaml)"
+    exit 1
+  fi
+
+  case "$gate_name" in
+    artifacts_valid)
+      _gate_run "artifacts_valid" "" _gate_artifacts_valid
+      ;;
+    adr_compliance)
+      if [ -z "$task_id" ]; then
+        err "Gate 'adr_compliance' requires a task-id (e.g. 'gate adr_compliance M0-001')"
+        exit 1
+      fi
+      _gate_run "adr_compliance" "$task_id" _gate_adr_compliance "$task_id"
+      ;;
+    security_clean)
+      _gate_run "security_clean" "" _gate_security_clean
+      ;;
+    all)
+      _gate_all "$task_id"
+      ;;
+    *)
+      err "Unknown gate: '$gate_name' (available: artifacts_valid, adr_compliance, security_clean, all)"
+      exit 1
+      ;;
+  esac
+}
+
+# Run one gate function and render a pass/fail banner. The gate function
+# should print any details on its own (1-3 short lines) and return
+# 0 on pass / non-zero on fail.
+_gate_run() {
+  local name=$1
+  local task=$2
+  local fn=$3
+  shift 3
+  local label="$name"
+  [ -n "$task" ] && label="$name (task: $task)"
+  echo "Gate: $label"
+  local rc=0
+  "$fn" "$@" || rc=$?
+  if [ "$rc" -eq 0 ]; then
+    printf "  ${GREEN}✓ PASS${NC}\n"
+    return 0
+  fi
+  printf "  ${RED}✗ FAIL${NC}\n"
+  return 1
+}
+
+# Meta-gate. Runs every applicable built-in gate, tallies pass/fail, and
+# exits non-zero on any failure. `adr_compliance` is only applicable
+# when a task-id is supplied.
+_gate_all() {
+  local task_id=$1
+  local passed=0 failed=0
+  info "Running all applicable gates${task_id:+ for task: $task_id}"
+  echo ""
+
+  if _gate_run "artifacts_valid" "" _gate_artifacts_valid; then
+    passed=$((passed + 1))
+  else
+    failed=$((failed + 1))
+  fi
+  echo ""
+
+  if [ -n "$task_id" ]; then
+    if _gate_run "adr_compliance" "$task_id" _gate_adr_compliance "$task_id"; then
+      passed=$((passed + 1))
+    else
+      failed=$((failed + 1))
+    fi
+    echo ""
+  fi
+
+  if _gate_run "security_clean" "" _gate_security_clean; then
+    passed=$((passed + 1))
+  else
+    failed=$((failed + 1))
+  fi
+  echo ""
+
+  local total=$((passed + failed))
+  if [ "$failed" -eq 0 ]; then
+    ok "All $total gates passed"
+    return 0
+  fi
+  err "$failed of $total gates failed"
+  exit 1
+}
+
+# ─────────── individual gate implementations ───────────
+
+# Pass when every artifact under .expero/docs/**/*.md that has a schema
+# (see _classify_artifact) conforms to its required_patterns. Wraps
+# cmd_validate in a subshell so its `exit 1` stays local and doesn't
+# short-circuit the gate harness.
+_gate_artifacts_valid() {
+  local output rc=0
+  output=$(cmd_validate 2>&1) || rc=$?
+  if [ "$rc" -eq 0 ]; then
+    # Extract the summary line for visibility.
+    echo "$output" | grep -E "^(Passed|Failed|Skipped):|All (classified )?artifacts" | sed 's/^/  /'
+    return 0
+  fi
+  # Show failing files only; suppress the per-check verbose log to keep
+  # the gate line readable.
+  echo "$output" | grep -E "(✗|missing:)" | sed 's/^/  /' | head -20
+  return 1
+}
+
+# Pass when the Critic's review for this task exists and its Verdict
+# is APPROVED. The review template (see roles/critic.md) puts the
+# verdict on the line immediately after "## Verdict".
+_gate_adr_compliance() {
+  local task_id=$1
+  local review=".expero/docs/review/$task_id.md"
+  if [ ! -f "$review" ]; then
+    echo "  Review file not found: $review"
+    echo "  (Critic hasn't reviewed this task yet)"
+    return 1
+  fi
+  local verdict
+  verdict=$(awk '/^## Verdict/{getline; print; exit}' "$review" | tr -d '[:space:]')
+  echo "  Review: $review"
+  if [ "$verdict" = "APPROVED" ]; then
+    echo "  Verdict: APPROVED"
+    return 0
+  fi
+  echo "  Verdict: ${verdict:-<missing>} (required: APPROVED)"
+  return 1
+}
+
+# Pass when the security summary exists and lists zero CRITICAL
+# findings. Passes-by-default when the summary is absent — that means
+# no sentinel audit has been run yet, which is a planner signal, not a
+# security failure. A milestone with pending security work should use
+# the ROADMAP's roadmap.md markers, not this gate.
+_gate_security_clean() {
+  local summary=".expero/docs/security/summary.md"
+  if [ ! -f "$summary" ]; then
+    echo "  No security summary present — gate passes by default"
+    echo "  (run Sentinel to populate .expero/docs/security/summary.md)"
+    return 0
+  fi
+  # Reuse the same helper that cmd_status uses for signal counting —
+  # handles grep's "no match = exit 1" correctly without set -e blowing
+  # up on the empty-match case.
+  local count
+  count=$(_count_matches_re "\|[[:space:]]*CRITICAL[[:space:]]*\|" "$summary")
+  if [ "$count" -eq 0 ]; then
+    echo "  No CRITICAL findings in $summary"
+    return 0
+  fi
+  echo "  $count CRITICAL finding(s) in $summary"
+  return 1
+}
+
 # Classify an artifact path to a schema key. Empty = no schema registered.
 _classify_artifact() {
   local f=$1
@@ -1321,8 +1499,16 @@ cmd_help() {
   echo "  start <role> [task-id]    Launch an agent"
   echo "  status                    Show project state"
   echo "  validate [path]           Check artifacts against SPEC §5.2 schemas"
+  echo "  gate <name> [task-id]     Run a Quality Gate (SPEC §4.2)"
   echo "  restart                   Milestone boundary checklist"
   echo "  help                      Show this help"
+  echo ""
+
+  echo "Gates:"
+  echo "  artifacts_valid           All artifacts conform to their schema"
+  echo "  adr_compliance <task>     Critic review exists and Verdict=APPROVED"
+  echo "  security_clean            No CRITICAL findings in security summary"
+  echo "  all [task]                Meta-gate: runs all applicable above"
   echo ""
 
   # Scenarios — dynamic from scenarios/*.json. Adding a scenario file
@@ -1414,6 +1600,7 @@ if [ "${BASH_SOURCE[0]:-$0}" = "$0" ]; then
     status)   cmd_status ;;
     restart)  cmd_restart ;;
     validate) shift; cmd_validate "${1:-}" ;;
+    gate)     shift; cmd_gate "$@" ;;
     help|-h|--help) cmd_help ;;
     *) err "Unknown command: $COMMAND"; echo ""; cmd_help; exit 1 ;;
   esac

@@ -7,6 +7,23 @@ and the project adheres to Semantic Versioning.
 ## [Unreleased]
 
 ### Added
+- `expero.sh gate <name> [task-id]` — Quality Gate executor (SPEC §4.2).
+  Three built-in gates shipped, plus a meta-gate:
+  - `artifacts_valid` — every classified artifact passes its schema.
+    Delegates to `cmd_validate` in a subshell so nested `exit 1`
+    doesn't escape the harness.
+  - `adr_compliance <task>` — Critic's review at
+    `.expero/docs/review/<task>.md` exists and its `## Verdict`
+    section contains `APPROVED` (not `CHANGES_REQUESTED`, not missing).
+  - `security_clean` — security summary contains zero
+    `| CRITICAL |` rows. Passes-by-default when no summary exists
+    (no audit run yet).
+  - `all [task]` — runs every applicable built-in gate, tallies
+    pass/fail, exits non-zero on any failure. Reports counts in the
+    summary line.
+  Gates are exit-code-first (designed for `&& deploy` in CI) with
+  short human-readable details. Two gates (`ci_passes`, `test_coverage`)
+  intentionally deferred to v2.0.2 — see ROADMAP for rationale.
 - `help` becomes data-driven and project-aware: Scenarios and Roles
   sections now read from `scenarios/*.json` (description field) and
   `roles/*.md` respectively. Adding a new scenario or role causes it
