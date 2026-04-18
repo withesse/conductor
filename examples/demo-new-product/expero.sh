@@ -803,16 +803,33 @@ _gate_security_clean() {
     echo "  (run Sentinel to populate .expero/docs/security/summary.md)"
     return 0
   fi
-  # Reuse the same helper that cmd_status uses for signal counting —
-  # handles grep's "no match = exit 1" correctly without set -e blowing
-  # up on the empty-match case.
-  local count
-  count=$(_count_matches_re "\|[[:space:]]*CRITICAL[[:space:]]*\|" "$summary")
-  if [ "$count" -eq 0 ]; then
+  # Scan each CRITICAL row and sum the numeric Count column. SPEC §5.2
+  # summary template is `| Severity | Count |` so the first numeric
+  # field after "CRITICAL" is the count. Rows without a parseable count
+  # (e.g. "| CRITICAL | see table below |") are treated as 0 — we
+  # trust the Sentinel's summary as authoritative, not the wording.
+  #
+  # Pre-v1.1 bug: the earlier version counted *rows matching CRITICAL*,
+  # which incorrectly failed "| CRITICAL | 0 |" (a correctly-filled
+  # clean summary). Dogfood finding D/E.
+  local total
+  total=$(awk -F'|' '
+    /\|[[:space:]]*CRITICAL[[:space:]]*\|/ {
+      found=0
+      for (i=1; i<=NF; i++) {
+        gsub(/^[[:space:]]+|[[:space:]]+$/, "", $i)
+        if (found && $i ~ /^[0-9]+$/) { sum += $i; break }
+        if ($i == "CRITICAL") found=1
+      }
+    }
+    END { print sum + 0 }
+  ' "$summary")
+
+  if [ "$total" -eq 0 ]; then
     echo "  No CRITICAL findings in $summary"
     return 0
   fi
-  echo "  $count CRITICAL finding(s) in $summary"
+  echo "  $total CRITICAL finding(s) in $summary"
   return 1
 }
 
@@ -1221,7 +1238,10 @@ See \`.expero/docs/adr/\`. ADRs load in numeric order; Superseded entries stop a
 
 All framework state lives in \`.expero/docs/\`. Never rely on conversation context for persistence.
 Status values: \`todo\` / \`in-progress\` / \`completed\` / \`blocked\`.
-Stop signals: \`NEEDS_ARCH_REVIEW\`, \`NEEDS_SPEC_CLARIFICATION\`, \`NEEDS_SECURITY_REVIEW\`.
+
+Stop signals — pick one form (both is fine):
+- **Text**: in the Notes column of \`.expero/docs/roadmap.md\`: \`NEEDS_ARCH_REVIEW\`, \`NEEDS_SPEC_CLARIFICATION\`, \`NEEDS_SECURITY_REVIEW\`, \`BLOCKED_BY_<task-id>\`
+- **Structured**: JSON at \`.expero/signals/<task-id>-<TYPE>.json\` (schema in \`.expero/signals/README.md\`; gets counted separately by \`bash expero.sh status\`).
 EOF
 }
 

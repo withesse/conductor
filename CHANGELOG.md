@@ -6,6 +6,20 @@ and the project adheres to Semantic Versioning.
 
 ## [Unreleased]
 
+### Fixed
+- `gate security_clean` no longer fails on a clean summary that lists
+  `| CRITICAL | 0 |`. The pre-fix version counted *rows containing
+  "CRITICAL"* instead of parsing the Count column, so a correctly-
+  filled-out summary failed the gate. Now awk-parses the first numeric
+  field after "CRITICAL" and sums across rows (so multi-row tables are
+  handled too). Found during v1.1 dogfood. Tests added in T26o covering
+  `CRITICAL=0`, `CRITICAL=2`, and multi-row `CRITICAL` aggregation.
+- `CLAUDE.md` template now documents both text and JSON stop-signal
+  forms. Previously only text markers were mentioned even though JSON
+  signals shipped in v1.2. AGENTS.md and `roles/_base.md` were
+  already updated; CLAUDE.md was the last doc-drift gap. Regression
+  guarded by T5c (3 scenarios × 3 assertions each).
+
 ### Added
 - Claude Code plugin at `.claude-plugin/` — distributes the 8 role
   prompts as Claude Code skills (`expero-architect`, `expero-planner`,

@@ -45,4 +45,7 @@ See `.expero/docs/adr/`. ADRs load in numeric order; Superseded entries stop app
 
 All framework state lives in `.expero/docs/`. Never rely on conversation context for persistence.
 Status values: `todo` / `in-progress` / `completed` / `blocked`.
-Stop signals: `NEEDS_ARCH_REVIEW`, `NEEDS_SPEC_CLARIFICATION`, `NEEDS_SECURITY_REVIEW`.
+
+Stop signals — pick one form (both is fine):
+- **Text**: in the Notes column of `.expero/docs/roadmap.md`: `NEEDS_ARCH_REVIEW`, `NEEDS_SPEC_CLARIFICATION`, `NEEDS_SECURITY_REVIEW`, `BLOCKED_BY_<task-id>`
+- **Structured**: JSON at `.expero/signals/<task-id>-<TYPE>.json` (schema in `.expero/signals/README.md`; gets counted separately by `bash expero.sh status`).

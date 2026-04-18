@@ -133,6 +133,18 @@ for s in $SCENARIOS; do
 done
 
 echo ""
+echo "== T5c: CLAUDE.md Expero Protocol documents both signal forms =="
+# Dogfood finding I: CLAUDE.md was missing the JSON signal form, even
+# though AGENTS.md and roles/_base.md had been updated. Protocol section
+# must mention .expero/signals/ and reference README.md schema.
+for s in new-product security-audit legacy-analysis; do
+  claude_md="$TMPDIR/$s/CLAUDE.md"
+  assert_match "  $s CLAUDE.md mentions text signal form"    "cat '$claude_md'" "NEEDS_ARCH_REVIEW"
+  assert_match "  $s CLAUDE.md mentions JSON signal form"    "cat '$claude_md'" "\\.expero/signals/"
+  assert_match "  $s CLAUDE.md references signals README"    "cat '$claude_md'" "signals/README\\.md"
+done
+
+echo ""
 echo "== T6: status reports correct initial task counts =="
 new_product_status=$(cd "$TMPDIR/new-product" && bash expero.sh status 2>&1)
 echo "$new_product_status" | grep -qE "todo:[[:space:]]+7"    && pass "new-product todo: 7"    || fail "new-product todo: 7"    "(missing)"
@@ -697,7 +709,38 @@ assert_nonzero "gate security_clean fails on CRITICAL row" \
     "cd '$TMPDIR/gate-sec' && bash expero.sh gate security_clean"
 assert_match   "  output shows CRITICAL count" \
     "cd '$TMPDIR/gate-sec' && bash expero.sh gate security_clean" \
-    "1 CRITICAL finding"
+    "2 CRITICAL finding"
+
+# Regression for dogfood finding D/E: "| CRITICAL | 0 |" means zero
+# findings (clean summary), gate MUST pass. The pre-fix version
+# incorrectly failed because it matched rows containing CRITICAL
+# without parsing the count column.
+cat > "$TMPDIR/gate-sec/.expero/docs/security/summary.md" << 'SEC'
+# Security Audit Summary
+| Severity | Count |
+|----------|-------|
+| CRITICAL | 0 |
+| HIGH | 3 |
+| MEDIUM | 5 |
+SEC
+assert_zero "gate security_clean passes with '| CRITICAL | 0 |'" \
+    "cd '$TMPDIR/gate-sec' && bash expero.sh gate security_clean"
+assert_match "  output says no CRITICAL findings" \
+    "cd '$TMPDIR/gate-sec' && bash expero.sh gate security_clean" \
+    "No CRITICAL findings"
+
+# Multi-row CRITICAL: rare but should sum. This also guards against
+# regex backsliding to "just count lines matching CRITICAL".
+cat > "$TMPDIR/gate-sec/.expero/docs/security/summary.md" << 'SEC'
+# Security Audit Summary
+| Severity | Count |
+|----------|-------|
+| CRITICAL | 3 |
+| CRITICAL | 2 |
+SEC
+assert_match "gate reports sum when multiple CRITICAL rows" \
+    "cd '$TMPDIR/gate-sec' && bash expero.sh gate security_clean" \
+    "5 CRITICAL finding"
 
 echo ""
 echo "== T26p: gate all meta-gate =="
