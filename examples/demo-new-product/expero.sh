@@ -436,6 +436,38 @@ _json_get_bool() {
 #      line and each line carries at most one `"..."` string.
 # Empty arrays return empty output. Missing keys return empty output.
 # No dependency on jq or other JSON parsers.
+# Extract a YAML block-sequence list under a top-level key. Example:
+#   ci_commands:
+#     - "npm test"
+#     - npm run lint
+# _yaml_get_list config.yaml ci_commands  →  prints each item on its own
+# line, with surrounding quotes stripped. Whitespace is significant
+# (items must be indented; unindented line ends the block). No support
+# for nested keys or flow-style `[a, b]` — this is a "poor-man's YAML"
+# reader scoped to the shapes we actually generate.
+_yaml_get_list() {
+  local file=$1
+  local key=$2
+  [ -f "$file" ] || return
+  awk -v k="$key" '
+    BEGIN { active = 0 }
+    # Block terminator: first line without leading whitespace after we
+    # started collecting. Empty lines stay inside the block.
+    active && /^[^[:space:]]/ { exit }
+    active && /^[[:space:]]+-[[:space:]]+/ {
+      item = $0
+      sub(/^[[:space:]]+-[[:space:]]+/, "", item)
+      # Strip wrapping quotes and trailing spaces.
+      gsub(/[[:space:]]+$/, "", item)
+      sub(/^"/, "", item); sub(/"$/, "", item)
+      sub(/^\x27/, "", item); sub(/\x27$/, "", item)
+      if (length(item) > 0) print item
+      next
+    }
+    { if ($0 == k":") active = 1 }
+  ' "$file"
+}
+
 _json_get_array() {
   local file=$1
   local key=$2
@@ -677,11 +709,14 @@ cmd_gate() {
     security_clean)
       _gate_run "security_clean" "" _gate_security_clean
       ;;
+    ci_passes)
+      _gate_run "ci_passes" "" _gate_ci_passes
+      ;;
     all)
       _gate_all "$task_id"
       ;;
     *)
-      err "Unknown gate: '$gate_name' (available: artifacts_valid, adr_compliance, security_clean, all)"
+      err "Unknown gate: '$gate_name' (available: artifacts_valid, adr_compliance, security_clean, ci_passes, all)"
       exit 1
       ;;
   esac
@@ -740,6 +775,13 @@ _gate_all() {
   fi
   echo ""
 
+  if _gate_run "ci_passes" "" _gate_ci_passes; then
+    passed=$((passed + 1))
+  else
+    failed=$((failed + 1))
+  fi
+  echo ""
+
   local total=$((passed + failed))
   if [ "$failed" -eq 0 ]; then
     ok "All $total gates passed"
@@ -789,6 +831,50 @@ _gate_adr_compliance() {
   fi
   echo "  Verdict: ${verdict:-<missing>} (required: APPROVED)"
   return 1
+}
+
+# Pass when every command under config.yaml's `ci_commands:` block
+# exits 0. Commands run sequentially in the project root; the first
+# failing command is reported with its last 10 lines of output and the
+# gate stops (no need to also see downstream failures cascading). Absent
+# or empty `ci_commands:` = pass-by-default — "no CI configured" is not
+# the gate's problem to diagnose.
+_gate_ci_passes() {
+  local config=".expero/config.yaml"
+  if [ ! -f "$config" ]; then
+    echo "  No config.yaml — gate passes by default"
+    return 0
+  fi
+  local commands=()
+  local line
+  while IFS= read -r line; do
+    [ -z "$line" ] && continue
+    commands+=("$line")
+  done < <(_yaml_get_list "$config" ci_commands)
+
+  if [ "${#commands[@]}" -eq 0 ]; then
+    echo "  No ci_commands configured in $config — gate passes by default"
+    echo "  (add 'ci_commands:' block with shell commands to enable)"
+    return 0
+  fi
+
+  local cmd rc=0 out
+  for cmd in "${commands[@]}"; do
+    echo "  \$ $cmd"
+    # Capture output so we can surface only the last few lines on fail.
+    # Run in a subshell so `cd` or env changes don't leak between
+    # commands and so `set -e` inside the script doesn't kill us.
+    if out=$(bash -c "$cmd" 2>&1); then
+      echo "    ✓ exit 0"
+    else
+      rc=$?
+      echo "    ✗ exit $rc"
+      echo "    --- tail of output ---"
+      echo "$out" | tail -10 | sed 's/^/    /'
+      return 1
+    fi
+  done
+  return 0
 }
 
 # Pass when the security summary exists and lists zero CRITICAL
@@ -1086,6 +1172,17 @@ model_mapping:
   reasoning:  $MODEL_CLAUDE_REASONING
   execution:  $MODEL_CLAUDE_EXECUTION
   template:   $MODEL_CLAUDE_TEMPLATE
+
+# Commands run by \`bash expero.sh gate ci_passes\`. Each item is a
+# shell command executed in the project root; any non-zero exit fails
+# the gate. Absent / empty = gate passes by default (no CI configured).
+#
+# Example:
+#   ci_commands:
+#     - "npm test"
+#     - "npm run lint"
+#     - "npm run typecheck"
+ci_commands:
 EOF
 }
 
@@ -1528,6 +1625,7 @@ cmd_help() {
   echo "  artifacts_valid           All artifacts conform to their schema"
   echo "  adr_compliance <task>     Critic review exists and Verdict=APPROVED"
   echo "  security_clean            No CRITICAL findings in security summary"
+  echo "  ci_passes                 Every command under ci_commands: exits 0"
   echo "  all [task]                Meta-gate: runs all applicable above"
   echo ""
 

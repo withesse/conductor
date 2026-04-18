@@ -6,6 +6,23 @@ and the project adheres to Semantic Versioning.
 
 ## [Unreleased]
 
+### Added
+- `expero.sh gate ci_passes` — fourth built-in Quality Gate (SPEC §4.2).
+  Reads `ci_commands:` (YAML block sequence) from `config.yaml`, runs
+  each command in a subshell, fails on first non-zero exit with the
+  offending command's exit code and last 10 lines of output. Absent or
+  empty `ci_commands:` passes by default ("no CI configured" is not
+  the gate's problem). Integrated into `gate all`, so running
+  `bash expero.sh gate all <task>` now covers artifacts + ADR review +
+  security + CI in one invocation.
+- `_yaml_get_list` helper — poor-man's YAML block-sequence reader
+  (`key:` followed by `  - item` lines). Scoped to the shapes Expero
+  actually emits; handles quoted / unquoted / extra-whitespace items.
+  No dependency on `yq`.
+- `config.yaml` template now includes an `ci_commands:` section with
+  commented-out example. New projects are gate-ready out of the box —
+  just uncomment and add commands.
+
 ### Fixed
 - `gate security_clean` no longer fails on a clean summary that lists
   `| CRITICAL | 0 |`. The pre-fix version counted *rows containing

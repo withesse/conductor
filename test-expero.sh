@@ -743,6 +743,56 @@ assert_match "gate reports sum when multiple CRITICAL rows" \
     "5 CRITICAL finding"
 
 echo ""
+echo "== T26o-b: gate command — ci_passes =="
+bash "$EXPERO" init "$TMPDIR/gate-ci" new-product >/dev/null
+# No ci_commands field configured → pass-by-default
+assert_zero "gate ci_passes passes when no ci_commands configured" \
+    "cd '$TMPDIR/gate-ci' && bash expero.sh gate ci_passes"
+assert_match "  output states 'pass by default'" \
+    "cd '$TMPDIR/gate-ci' && bash expero.sh gate ci_passes" \
+    "No ci_commands configured"
+# Generated config.yaml already has an empty `ci_commands:` block — confirm.
+assert_match "  init writes ci_commands: placeholder" \
+    "cat '$TMPDIR/gate-ci/.expero/config.yaml'" \
+    "^ci_commands:\$"
+# Single passing command
+cat >> "$TMPDIR/gate-ci/.expero/config.yaml" << 'CFG'
+  - "echo hello"
+CFG
+assert_zero "gate ci_passes passes with a trivially passing command" \
+    "cd '$TMPDIR/gate-ci' && bash expero.sh gate ci_passes"
+# Multi-command all passing
+cat >> "$TMPDIR/gate-ci/.expero/config.yaml" << 'CFG'
+  - "true"
+  - "ls /"
+CFG
+assert_zero "gate ci_passes passes when every command exits 0" \
+    "cd '$TMPDIR/gate-ci' && bash expero.sh gate ci_passes"
+# Inject a failing command at end — gate should fail
+cat >> "$TMPDIR/gate-ci/.expero/config.yaml" << 'CFG'
+  - "echo boom; exit 17"
+CFG
+assert_nonzero "gate ci_passes fails on first non-zero exit" \
+    "cd '$TMPDIR/gate-ci' && bash expero.sh gate ci_passes"
+assert_match "  output shows failing exit code" \
+    "cd '$TMPDIR/gate-ci' && bash expero.sh gate ci_passes" \
+    "exit 17"
+assert_match "  output surfaces command output tail" \
+    "cd '$TMPDIR/gate-ci' && bash expero.sh gate ci_passes" \
+    "boom"
+
+# Regression: YAML parser must handle quoted + unquoted items + strip
+# whitespace. Rebuild config to exercise the parser specifically.
+bash "$EXPERO" init "$TMPDIR/gate-ci-mix" new-product >/dev/null
+cat >> "$TMPDIR/gate-ci-mix/.expero/config.yaml" << 'CFG'
+  - "echo quoted"
+  - echo unquoted
+  -   "echo extra-space"
+CFG
+assert_zero "gate ci_passes parses mixed quoting" \
+    "cd '$TMPDIR/gate-ci-mix' && bash expero.sh gate ci_passes"
+
+echo ""
 echo "== T26p: gate all meta-gate =="
 bash "$EXPERO" init "$TMPDIR/gate-all" new-product >/dev/null
 # Fresh project: no artifacts, no review, no security → passes
@@ -760,7 +810,7 @@ assert_zero "gate all with task-id passes when every check passes" \
     "cd '$TMPDIR/gate-all' && bash expero.sh gate all M0-001"
 assert_match "  summary line reports all N gates passed" \
     "cd '$TMPDIR/gate-all' && bash expero.sh gate all M0-001" \
-    "All 3 gates passed"
+    "All 4 gates passed"
 # Break artifacts_valid → all should fail
 cat > "$TMPDIR/gate-all/.expero/docs/adr/ADR-bad.md" << 'BAD'
 # ADR-bad: missing sections
@@ -771,7 +821,7 @@ assert_nonzero "gate all fails when any gate fails" \
     "cd '$TMPDIR/gate-all' && bash expero.sh gate all M0-001"
 assert_match   "  summary reports failure count" \
     "cd '$TMPDIR/gate-all' && bash expero.sh gate all M0-001" \
-    "1 of 3 gates failed"
+    "1 of 4 gates failed"
 
 echo ""
 echo "== T26q: gate unknown name fails + help lists gates =="
@@ -781,6 +831,7 @@ assert_match "help lists gate command"      "bash '$EXPERO' help" "gate <name>"
 assert_match "help lists artifacts_valid"   "bash '$EXPERO' help" "artifacts_valid"
 assert_match "help lists adr_compliance"    "bash '$EXPERO' help" "adr_compliance"
 assert_match "help lists security_clean"    "bash '$EXPERO' help" "security_clean"
+assert_match "help lists ci_passes"         "bash '$EXPERO' help" "ci_passes"
 assert_match "help lists all meta-gate"     "bash '$EXPERO' help" "^  all "
 
 echo ""

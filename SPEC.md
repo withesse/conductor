@@ -34,7 +34,7 @@
 |------|------|---------|------|
 | §3   | Role 定义与 prompt     | ✅         | 8 个 role 定义在 `roles/*.md`（v1.x 解耦后数据化） |
 | §4.1 | 声明式 Workflow        | 📋 v2.0    | YAML 工作流暂无执行引擎 |
-| §4.2 | Quality Gates          | 🟡 partial | `expero.sh gate` 已落地 3 条（artifacts_valid / adr_compliance / security_clean）；ci_passes / test_coverage 留给 v2.0.2 |
+| §4.2 | Quality Gates          | 🟡 partial | `expero.sh gate` 已落地 4 条（artifacts_valid / adr_compliance / security_clean / ci_passes）；test_coverage 留给 v2.0.2 |
 | §4.3 | Stop Signal 与恢复     | 🟡 partial | JSON 信号 + `status` 解析已就绪；自动分派 / resolved 归档为 v2.0.1 |
 | §5.1 | 目录结构               | ✅         | `init` 按 `scenarios/<name>.json` 生成 |
 | §5.2 | Artifact Schema        | 🟢 enforced | `validate` 命令校验 7 类（schemas/*.json）；workflow 门控集成为 v2.0.2 |

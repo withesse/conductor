@@ -1,6 +1,6 @@
 version: 1.0.0
 scenario: new-product
-created: 2026-04-18T05:51:57Z
+created: 2026-04-18T06:15:31Z
 
 roles:
   core:
@@ -16,3 +16,14 @@ model_mapping:
   reasoning:  claude-opus-4-7
   execution:  claude-sonnet-4-6
   template:   claude-haiku-4-5-20251001
+
+# Commands run by `bash expero.sh gate ci_passes`. Each item is a
+# shell command executed in the project root; any non-zero exit fails
+# the gate. Absent / empty = gate passes by default (no CI configured).
+#
+# Example:
+#   ci_commands:
+#     - "npm test"
+#     - "npm run lint"
+#     - "npm run typecheck"
+ci_commands:
