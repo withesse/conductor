@@ -7,6 +7,20 @@ and the project adheres to Semantic Versioning.
 ## [Unreleased]
 
 ### Added
+- `roles/` top-level directory holding the 8 role prompts as plain
+  Markdown (`architect.md`, `planner.md`, …, `archaeologist.md`) plus a
+  shared `_base.md` preamble. Previously hardcoded as bash heredocs
+  inside `_build_prompt()`; now editable without touching shell code
+  and diff-reviewable without heredoc-escaping noise. Uses `__TASK__`
+  and `__TASK_ID__` placeholders for per-invocation substitution.
+- `init` copies the source `roles/` directory into the generated
+  project at `.expero/roles/`. Projects are now self-contained: running
+  `expero.sh start <role>` no longer requires the source repo to be
+  reachable.
+- `_resource_root()` helper: locates `roles/` by preferring project-local
+  `.expero/roles/` before falling back to the script's source directory.
+  Makes it possible to override role prompts per-project without forking
+  the shared script.
 - `expero.sh validate [path]` — artifact schema validator covering the 7
   artifact types declared in SPEC §5.2 (ADR, reverse ADR, spec,
   test-plan, review, security report, security summary). Reports
@@ -52,6 +66,11 @@ and the project adheres to Semantic Versioning.
 - With `set -u`, `cmd_start`, `_count_files`, and `_build_prompt` no
   longer abort on optional arguments; they use explicit `${N:-}`
   defaults.
+- Role-name title-casing in the role preamble ("你是 Architect。") now
+  uses a portable `awk`-based helper. The previous `${role^}` bash-4
+  expansion silently no-op'd under macOS's default bash 3.2, shipping
+  lowercase role names in the prompt header; this path was never
+  covered by the test suite and only surfaced on real `start` invocations.
 
 ## [1.0.0] — 2026-04-17
 

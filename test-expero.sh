@@ -320,6 +320,82 @@ assert_match "help lists validate"     "bash '$EXPERO' help" "validate "
 assert_match "help warns about task-id" "bash '$EXPERO' help" "task-id.*embedded"
 
 echo ""
+echo "== T19: role templates extracted to roles/*.md =="
+ROLES_DIR="$SCRIPT_DIR/roles"
+assert_zero "roles/ directory exists"       "[ -d '$ROLES_DIR' ]"
+assert_zero "roles/_base.md exists"         "[ -f '$ROLES_DIR/_base.md' ]"
+for r in architect planner builder verifier critic sentinel scribe archaeologist; do
+  assert_zero "  roles/$r.md exists"        "[ -f '$ROLES_DIR/$r.md' ]"
+done
+# Templates must reference the __TASK__ or __TASK_ID__ placeholder so
+# substitution actually has something to work with.
+for r in architect planner builder verifier sentinel scribe archaeologist; do
+  assert_match "  $r template has __TASK__"     "cat '$ROLES_DIR/$r.md'" "__TASK__"
+done
+assert_match "  critic template has __TASK_ID__" "cat '$ROLES_DIR/critic.md'" "__TASK_ID__"
+assert_match "  builder template has __TASK_ID__ for file ref" "cat '$ROLES_DIR/builder.md'" "specs/__TASK_ID__\\.md"
+
+echo ""
+echo "== T20: init copies roles/ into .expero/roles/ =="
+bash "$EXPERO" init "$TMPDIR/roles-copy" new-product >/dev/null
+assert_zero  "  .expero/roles/ created"         "[ -d '$TMPDIR/roles-copy/.expero/roles' ]"
+assert_zero  "  _base.md copied"                "[ -f '$TMPDIR/roles-copy/.expero/roles/_base.md' ]"
+for r in architect planner builder verifier critic sentinel scribe archaeologist; do
+  assert_zero "  $r.md copied"                  "[ -f '$TMPDIR/roles-copy/.expero/roles/$r.md' ]"
+done
+
+echo ""
+echo "== T21: _build_prompt renders with substitutions =="
+# Helper: source expero.sh in a subshell, call _build_prompt from the
+# project dir. The dispatch guard inside expero.sh skips main when sourced.
+build_prompt() {
+  local proj=$1 role=$2 task=$3
+  bash -c "cd '$proj' && source '$EXPERO' >/dev/null 2>&1 && _build_prompt '$role' '$task'" 2>/dev/null
+}
+
+# Architect with explicit task-id → the literal id appears in "本次任务"
+architect_out=$(build_prompt "$TMPDIR/roles-copy" architect M0-001)
+echo "$architect_out" | grep -qE "本次任务：M0-001"   && pass "architect: task-id substituted into 本次任务" || fail "architect: task-id substituted" "(not found)"
+echo "$architect_out" | grep -qE "^你是 Architect。$" && pass "architect: title-cased role name in base"   || fail "architect: title-cased role"    "(not found)"
+echo "$architect_out" | grep -qE "ADR-NNNN"           && pass "architect: role-body content rendered"    || fail "architect: role-body"           "(not found)"
+# Regression guard: bash 3.2 would leave `${role^}` literally or lowercase.
+# Under any supported bash the first-letter must be upper and body lower.
+echo "$architect_out" | grep -qE "你是 architect" && fail "architect: title-case regressed" "(lowercase leaked)" || pass "architect: title-case intact"
+
+# Builder with no task-id → default description + <task-id> literal for path
+builder_out=$(build_prompt "$TMPDIR/roles-copy" builder "")
+echo "$builder_out" | grep -qE "本次任务：实现 roadmap 中第一个状态为 todo 的任务" \
+    && pass "builder: default task description used" || fail "builder: default task" "(wrong)"
+echo "$builder_out" | grep -qE "specs/<task-id>\\.md" \
+    && pass "builder: __TASK_ID__ empty case → <task-id> literal" || fail "builder: literal <task-id> fallback" "(not found)"
+
+# Critic without task-id → must fail
+critic_rc=$(bash -c "cd '$TMPDIR/roles-copy' && source '$EXPERO' >/dev/null 2>&1 && _build_prompt critic ''" 2>/dev/null; echo $?)
+assert_eq "critic requires task-id (rc != 0)" "$critic_rc" "1"
+
+# Critic with task-id → task-id appears in both the "本次任务 审查" line and the review path
+critic_out=$(build_prompt "$TMPDIR/roles-copy" critic M1-042)
+echo "$critic_out" | grep -qE "本次任务：审查 M1-042" \
+    && pass "critic: task-id in 审查 line" || fail "critic: task-id in 审查 line" "(not found)"
+echo "$critic_out" | grep -qE "review/M1-042\\.md" \
+    && pass "critic: task-id in review path" || fail "critic: review path" "(not found)"
+
+# Unknown role → fail cleanly
+unknown_rc=$(bash -c "cd '$TMPDIR/roles-copy' && source '$EXPERO' >/dev/null 2>&1 && _build_prompt nonesuch ''" 2>/dev/null; echo $?)
+assert_eq "unknown role rejected (rc != 0)" "$unknown_rc" "1"
+
+echo ""
+echo "== T22: project is self-contained (roles resolver picks .expero/roles) =="
+# Regression: running expero.sh from inside a generated project must NOT
+# require the source repo. Move the project to a different parent so any
+# accidental absolute-path leak becomes visible.
+cp -r "$TMPDIR/roles-copy" "$TMPDIR/detached"
+detached_out=$(bash -c "cd '$TMPDIR/detached' && source ./expero.sh >/dev/null 2>&1 && _build_prompt architect M0-001" 2>/dev/null)
+echo "$detached_out" | grep -qE "本次任务：M0-001" \
+    && pass "detached project renders prompt from .expero/roles" \
+    || fail "detached project renders prompt from .expero/roles" "(empty or wrong)"
+
+echo ""
 echo "─────────────────────────────────────────"
 TOTAL=$((PASS + FAIL))
 if [ "$FAIL" -eq 0 ]; then

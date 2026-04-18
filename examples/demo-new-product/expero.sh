@@ -605,234 +605,94 @@ _count_matches_re() {
   echo "${n:-0}"
 }
 
+# Locate the directory that holds role/scenario/schema resources. Prefer
+# the project-local .expero/ (created by init, so self-contained when
+# expero.sh is copied into a project), fall back to the source repo layout
+# (directory that contains this script). Fails hard if neither is present.
+_resource_root() {
+  if [ -d ".expero/roles" ]; then
+    echo ".expero"
+    return
+  fi
+  local script_dir
+  script_dir=$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" 2>/dev/null && pwd)
+  if [ -d "$script_dir/roles" ]; then
+    echo "$script_dir"
+    return
+  fi
+  err "Cannot locate roles/ (tried .expero/roles and $script_dir/roles)"
+  exit 1
+}
+
+# Uppercase-first of a lowercase string. Portable replacement for bash 4
+# `${var^}`, which silently no-ops on macOS bash 3.2 (the previous code
+# shipped a broken "你是 builder。" header there).
+_title_case() {
+  awk '{print toupper(substr($0,1,1)) substr($0,2)}' <<< "$1"
+}
+
+# Per-role default task description. Used when the caller does not pass
+# a task-id. Critic has no default — it hard-requires a task-id.
+_default_task_for_role() {
+  case "$1" in
+    architect)     echo "检查 .expero/docs/roadmap.md 中所有 NEEDS_ARCH_REVIEW 标记并处理" ;;
+    planner)       echo "检查 roadmap.md，更新里程碑状态，识别 blocked 任务" ;;
+    builder)       echo "实现 roadmap 中第一个状态为 todo 的任务" ;;
+    verifier)      echo "为所有 completed 任务检查测试计划，补充缺失的" ;;
+    sentinel)      echo "审计指定模块或全量代码库" ;;
+    scribe)        echo "生成所有对外文档" ;;
+    archaeologist) echo "分析现有代码库，建立理解基线" ;;
+    critic)        echo "" ;;    # no default: task-id required
+    *)             echo "" ;;
+  esac
+}
+
 _build_prompt() {
   local role=$1
   local task_id=${2:-}
+  local root
+  root=$(_resource_root)
 
-  local base="你是 ${role^}。
+  local role_file="$root/roles/$role.md"
+  local base_file="$root/roles/_base.md"
+  if [ ! -f "$role_file" ]; then
+    err "Unknown role: $role (no such file: $role_file)"
+    exit 1
+  fi
+  if [ ! -f "$base_file" ]; then
+    err "Missing base template: $base_file"
+    exit 1
+  fi
 
-Expero Agents 协作框架规则：
-1. 所有状态通过 .expero/docs/ 文件系统传递，禁止依赖上下文
-2. 严格遵守 .expero/docs/adr/ 中的所有 ADR
-3. 遇到边界问题立即停下，在 roadmap.md 备注列写 Stop Signal
-4. 任务状态值：todo / in-progress / completed / blocked
-
-启动时必读：
-- CLAUDE.md
-- .expero/docs/roadmap.md
-- .expero/docs/adr/（如存在）"
-
-  case "$role" in
-    architect)
-      echo "$base
-
-你的职责：架构决策、ADR、差距分析、技术方案审查
-
-本次任务：${task_id:-检查 .expero/docs/roadmap.md 中所有 NEEDS_ARCH_REVIEW 标记并处理}
-
-你的产出：
-- .expero/docs/adr/ADR-NNNN-<kebab-case>.md（新增 ADR）
-- .expero/docs/gap-analysis.md（差距分析，如适用）
-
-规则：
-- ADR 一旦 Accepted 不可修改，只能 Supersede
-- 新增依赖时评估：体积影响 / 安全性 / 维护状态
-- 完成后更新 roadmap.md 中对应 NEEDS_ARCH_REVIEW 为 ARCH_RESOLVED"
-      ;;
-
-    planner)
-      echo "$base
-
-你的职责：维护 roadmap、排列优先级、撰写里程碑退出标准、协调任务流转
-
-本次任务：${task_id:-检查 roadmap.md，更新里程碑状态，识别 blocked 任务}
-
-你的产出：
-- .expero/docs/vision.md（项目愿景，仅启动时）
-- .expero/docs/roadmap.md（持续维护）
-- .expero/docs/specs/<feature>.md（spec 格式，技术内容由 Architect 审查）
-
-规则：
-- 不做技术决策，技术问题备注写 NEEDS_ARCH_REVIEW
-- 每个里程碑必须有可机械验证的退出标准
-- 任务状态只能是：todo / in-progress / completed / blocked"
-      ;;
-
-    builder)
-      echo "$base
-
-你的职责：实现代码、编写测试、修复 CI
-
-本次任务：${task_id:-实现 roadmap 中第一个状态为 todo 的任务}
-
-读取必需：
-- .expero/docs/specs/${task_id:-<task-id>}.md（如存在）
-
-规则：
-- 严格遵守所有 ADR
-- 遇到 ADR 未覆盖的架构问题：roadmap 备注写 NEEDS_ARCH_REVIEW，停下
-- 遇到 spec 不明确：roadmap 备注写 NEEDS_SPEC_CLARIFICATION，停下
-- 禁止越权修改其他 Role 的文档
-- 完成后：1) CI 通过 2) 更新 roadmap.md 任务状态为 completed + 填入 commit hash"
-      ;;
-
-    verifier)
-      echo "$base
-
-你的职责：测试计划、覆盖率审查、CI 状态维护
-
-本次任务：${task_id:-为所有 completed 任务检查测试计划，补充缺失的}
-
-你的产出：
-- .expero/docs/specs/<task-id>-test-plan.md
-- .expero/docs/ci-status.md（持续维护）
-
-测试计划必须包含：
-- 单元测试用例表格：| ID | 场景 | 预期结果 |
-- 集成测试描述（标注是否需要 Docker / 外部服务）
-- 分歧覆盖（仅 migration 场景）：Class A 的 reject 测试 / Class B 的 warn 测试
-
-规则：
-- 只写测试计划，不写测试代码（代码由 Builder 实现）
-- 不做功能决策，不确定时在 ci-status.md 标注 [需 Planner 确认]"
-      ;;
-
-    critic)
-      echo "$base
-
-你的职责：代码审查、ADR 合规检查
-
-本次任务：审查 ${task_id:?'任务 ID 必填'}
-
-执行：git diff HEAD~1
-
-读取必需：
-- .expero/docs/adr/（全部）
-- .expero/docs/specs/${task_id}*.md
-
-你的产出：.expero/docs/review/${task_id}.md
-
-审查维度（固定顺序）：
-1. ADR 合规：逐条检查每份 ADR 的 Decision 章节
-2. Spec 覆盖：数据结构 / 错误类型 / API 端点完整性
-3. 分歧处理（migration 场景）：Class A 硬拒绝 / Class B warn 日志
-4. 测试完整性：test-plan 用例是否全部有实现
-5. 副作用：是否影响 spec 未提及的模块
-
-报告格式：
-# Review: ${task_id}
-
-## Verdict
-APPROVED | CHANGES_REQUESTED
-
-## ADR Compliance
-- [ ] ADR-NNNN: pass/fail + 说明
-
-## Issues
-| Severity | Location | Description | Suggestion |
-| BLOCK    | file:line | ... | ... |
-| WARN     | file:line | ... | ... |
-
-Verdict = CHANGES_REQUESTED 时：
-- 把 roadmap.md 中该任务状态改回 in-progress
-
-规则：只审查，不修改代码。"
-      ;;
-
-    sentinel)
-      echo "$base
-
-你的职责：安全审计、漏洞识别、风险评估
-
-本次任务：${task_id:-审计指定模块或全量代码库}
-
-你的产出：
-- .expero/docs/security/<module>.md（模块报告）
-- .expero/docs/security/summary.md（汇总，含 CVSS 评分）
-
-审计维度（按顺序）：
-1. 认证授权：JWT 验签 / 权限绕过路径 / Token 隔离
-2. 注入攻击：SQL 注入 / 命令注入 / 路径遍历
-3. 敏感信息：硬编码密钥 / 日志泄漏 / 响应泄漏内部信息
-4. 加密：弱哈希算法 / 不安全随机数
-5. 依赖安全：已知 CVE
-6. 速率限制：登录暴力破解 / API 滥用防护
-
-严重性（CVSS）：
-CRITICAL  9.0-10.0  立即修复，阻塞发布
-HIGH      7.0-8.9   当前里程碑
-MEDIUM    4.0-6.9   下个里程碑
-LOW       0.1-3.9   Backlog
-
-规则：
-- 只识别和评估，不修改代码
-- CRITICAL 漏洞：立即在 .expero/docs/roadmap.md 创建阻塞任务（状态 blocked）"
-      ;;
-
-    scribe)
-      echo "$base
-
-你的职责：对外文档、API 参考、CHANGELOG
-
-本次任务：${task_id:-生成所有对外文档}
-
-读取必需：
-- .expero/docs/adr/（全部）
-- .expero/docs/specs/（全部）
-- 代码中的接口定义
-
-你的产出（按需）：
-- .expero/docs/public/api-reference.md   # API 参考
-- .expero/docs/public/quickstart.md      # 快速上手
-- .expero/docs/public/architecture.md    # 架构说明
-- .expero/docs/public/onboarding.md      # 新人指南
-- CHANGELOG.md                   # 基于 roadmap.md 的版本记录
-
-规则：
-- 不做技术决策，不修改代码
-- 技术内容不确定时标注 [需 Architect 确认]
-- 目标读者明确：api-reference → 集成方 / quickstart → 新用户 / onboarding → 新成员"
-      ;;
-
-    archaeologist)
-      echo "$base
-
-你的职责：遗留代码理解、逆向 ADR、技术债梳理
-
-本次任务：${task_id:-分析现有代码库，建立理解基线}
-
-你的产出：
-- .expero/docs/legacy/module-map.md     # 模块关系图
-- .expero/docs/legacy/known-bugs.md     # 已知问题（标注 [SECURITY] / [BUG-CRITICAL]）
-- .expero/docs/legacy/tech-debt.md      # 技术债清单
-- .expero/docs/reverse-adr/RADR-NNNN-<slug>.md  # 推断的设计决策
-
-逆向 ADR 格式：
-# RADR-NNNN: <推断的决策标题>
-
-## Inference Confidence
-HIGH | MEDIUM | LOW
-
-## Evidence
-# 引用具体文件和行号
-
-## Inferred Decision
-# 当时可能的决策原因
-
-## Current Problems
-# 今天带来的问题
-
-规则：
-- 不修改代码
-- 置信度 LOW 的推断必须明确标注
-- 发现安全问题立即在 known-bugs.md 标注 [SECURITY]"
-      ;;
-
-    *)
-      err "Unknown role: $role"
+  # Resolve the two template placeholders:
+  #   __TASK__     — description of *this* invocation (task-id or default)
+  #   __TASK_ID__  — literal task-id (or `<task-id>` when none, so docs
+  #                  paths show as `specs/<task-id>.md` instead of `specs/.md`)
+  local task_desc
+  if [ -n "$task_id" ]; then
+    # Critic's template renders "审查 __TASK_ID__", so the desc for
+    # critic just IS the task-id; for everyone else, desc = task-id too.
+    task_desc=$task_id
+  else
+    if [ "$role" = "critic" ]; then
+      err "Critic requires a task-id (second argument to 'start')"
       exit 1
-      ;;
-  esac
+    fi
+    task_desc=$(_default_task_for_role "$role")
+  fi
+  local task_id_safe=${task_id:-<task-id>}
+
+  local role_title
+  role_title=$(_title_case "$role")
+
+  # Render base (shared preamble) then role body. Using sed with | as
+  # delimiter; task-id is already validated to [A-Za-z0-9._-] in
+  # cmd_start, and our default descriptions contain no | either.
+  sed "s|__ROLE_TITLE__|$role_title|g" "$base_file"
+  echo ""
+  sed -e "s|__TASK__|$task_desc|g" \
+      -e "s|__TASK_ID__|$task_id_safe|g" \
+      "$role_file"
 }
 
 # ─────────────────────────────────────────
@@ -1198,13 +1058,25 @@ EOF
 }
 
 _gen_scripts() {
-  # Copy the bootstrap script into the new project so users can run it
-  # in-tree without keeping the source tree around. Caller must pass the
-  # absolute path resolved BEFORE any cd (see cmd_init).
+  # Copy the bootstrap script AND its sidecar resources (roles/…) into
+  # the new project so the generated tree is self-contained: users can
+  # run `bash expero.sh start <role>` without the source repo present.
+  # Caller must pass the absolute path resolved BEFORE any cd (see cmd_init).
   local script_path=$1
-  if [ -n "$script_path" ] && [ -f "$script_path" ] && [ "$script_path" != "$(pwd)/expero.sh" ]; then
+  [ -n "$script_path" ] && [ -f "$script_path" ] || return 0
+
+  if [ "$script_path" != "$(pwd)/expero.sh" ]; then
     cp "$script_path" expero.sh
     chmod +x expero.sh
+  fi
+
+  # Copy roles/ next to .expero/ inside the project. Lives under .expero/
+  # (not at project root) so agents' code-owned surface stays clean.
+  local src_root
+  src_root=$(dirname -- "$script_path")
+  if [ -d "$src_root/roles" ]; then
+    mkdir -p .expero/roles
+    cp "$src_root/roles"/*.md .expero/roles/
   fi
 }
 
