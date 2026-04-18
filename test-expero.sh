@@ -848,6 +848,161 @@ assert_zero "gate ci_passes parses mixed quoting" \
     "cd '$TMPDIR/gate-ci-mix' && bash expero.sh gate ci_passes"
 
 echo ""
+echo "== T26o-c: gate command — test_coverage =="
+bash "$EXPERO" init "$TMPDIR/gate-cov" new-product >/dev/null
+COV="$TMPDIR/gate-cov"
+
+# No threshold → pass by default
+assert_zero "gate test_coverage passes when no threshold configured" \
+    "cd '$COV' && bash expero.sh gate test_coverage"
+assert_match "  output says pass-by-default" \
+    "cd '$COV' && bash expero.sh gate test_coverage" \
+    "No coverage_threshold configured"
+
+# Threshold set but file/format missing → fail (config error)
+cat >> "$COV/.expero/config.yaml" << 'CFG'
+coverage_threshold: 80
+CFG
+assert_nonzero "gate test_coverage fails when file/format missing" \
+    "cd '$COV' && bash expero.sh gate test_coverage"
+
+# ---- jest-json-summary: multi-line pretty-printed ----
+mkdir -p "$COV/coverage"
+cat > "$COV/coverage/jest.json" << 'FIX'
+{
+  "total": {
+    "lines": { "total": 1000, "covered": 875, "skipped": 0, "pct": 87.5 },
+    "statements": { "total": 1000, "covered": 850, "skipped": 0, "pct": 85 },
+    "branches": { "total": 300, "covered": 240, "skipped": 0, "pct": 80 },
+    "functions": { "total": 200, "covered": 190, "skipped": 0, "pct": 95 }
+  }
+}
+FIX
+# Rewrite config so only one coverage_threshold line exists.
+bash "$EXPERO" init "$COV-jest" new-product >/dev/null
+cat > "$COV-jest/coverage/jest.json" << 'FIX'
+{
+  "total": {
+    "lines": { "total": 1000, "covered": 875, "skipped": 0, "pct": 87.5 },
+    "statements": { "total": 1000, "covered": 850, "skipped": 0, "pct": 85 },
+    "branches": { "total": 300, "covered": 240, "skipped": 0, "pct": 80 },
+    "functions": { "total": 200, "covered": 190, "skipped": 0, "pct": 95 }
+  }
+}
+FIX
+mkdir -p "$COV-jest/coverage"
+mv "$COV-jest/coverage/jest.json" "$COV-jest/coverage/jest.json"
+cat >> "$COV-jest/.expero/config.yaml" << CFG
+coverage_file: "coverage/jest.json"
+coverage_format: "jest-json-summary"
+coverage_threshold: 80
+coverage_metric: "lines"
+CFG
+mkdir -p "$COV-jest/coverage"
+cat > "$COV-jest/coverage/jest.json" << 'FIX'
+{
+  "total": {
+    "lines": { "total": 1000, "covered": 875, "skipped": 0, "pct": 87.5 },
+    "statements": { "total": 1000, "covered": 850, "skipped": 0, "pct": 85 },
+    "branches": { "total": 300, "covered": 240, "skipped": 0, "pct": 80 },
+    "functions": { "total": 200, "covered": 190, "skipped": 0, "pct": 95 }
+  }
+}
+FIX
+assert_zero "jest: threshold 80 measured 87.5 lines → PASS" \
+    "cd '$COV-jest' && bash expero.sh gate test_coverage"
+assert_match "  jest output reports correct measured value" \
+    "cd '$COV-jest' && bash expero.sh gate test_coverage" \
+    "Measured:[[:space:]]+87.5%"
+# Metric switch picks different pct (branches=80, at threshold edge = PASS)
+sed -i.bak 's/coverage_metric: "lines"/coverage_metric: "branches"/' "$COV-jest/.expero/config.yaml"
+assert_zero "jest: metric=branches at threshold edge → PASS" \
+    "cd '$COV-jest' && bash expero.sh gate test_coverage"
+# Raise threshold above every pct → FAIL
+sed -i.bak 's/coverage_threshold: 80/coverage_threshold: 99/' "$COV-jest/.expero/config.yaml"
+assert_nonzero "jest: threshold above measured → FAIL" \
+    "cd '$COV-jest' && bash expero.sh gate test_coverage"
+
+# ---- pytest-coverage-json ----
+bash "$EXPERO" init "$COV-py" new-product >/dev/null
+mkdir -p "$COV-py/cov"
+cat > "$COV-py/cov/py.json" << 'FIX'
+{
+  "meta": {"format": 2},
+  "totals": {
+    "covered_lines": 870,
+    "num_statements": 1000,
+    "percent_covered": 87.0,
+    "missing_lines": 130
+  }
+}
+FIX
+cat >> "$COV-py/.expero/config.yaml" << CFG
+coverage_file: "cov/py.json"
+coverage_format: "pytest-coverage-json"
+coverage_threshold: 85
+CFG
+assert_zero "pytest: 87 ≥ 85 → PASS" \
+    "cd '$COV-py' && bash expero.sh gate test_coverage"
+sed -i.bak 's/coverage_threshold: 85/coverage_threshold: 90/' "$COV-py/.expero/config.yaml"
+assert_nonzero "pytest: 87 < 90 → FAIL" \
+    "cd '$COV-py' && bash expero.sh gate test_coverage"
+
+# ---- go-cover-func ----
+bash "$EXPERO" init "$COV-go" new-product >/dev/null
+mkdir -p "$COV-go/cov"
+cat > "$COV-go/cov/go.txt" << 'FIX'
+github.com/foo/bar/a.go:5:		doA			100.0%
+github.com/foo/bar/b.go:12:		doB			75.0%
+total:							(statements)	87.5%
+FIX
+cat >> "$COV-go/.expero/config.yaml" << CFG
+coverage_file: "cov/go.txt"
+coverage_format: "go-cover-func"
+coverage_threshold: 80
+CFG
+assert_zero "go: 87.5 ≥ 80 → PASS" \
+    "cd '$COV-go' && bash expero.sh gate test_coverage"
+assert_match "  go: reports total pct" \
+    "cd '$COV-go' && bash expero.sh gate test_coverage" \
+    "Measured:[[:space:]]+87.5%"
+
+# ---- lcov-summary ----
+bash "$EXPERO" init "$COV-lcov" new-product >/dev/null
+mkdir -p "$COV-lcov/cov"
+cat > "$COV-lcov/cov/lcov.txt" << 'FIX'
+Summary coverage rate:
+  lines......: 87.5% (700 of 800 lines)
+  functions..: 92.1% (210 of 228 functions)
+  branches...: 81.3% (130 of 160 branches)
+FIX
+cat >> "$COV-lcov/.expero/config.yaml" << CFG
+coverage_file: "cov/lcov.txt"
+coverage_format: "lcov-summary"
+coverage_threshold: 80
+coverage_metric: "lines"
+CFG
+assert_zero "lcov: lines 87.5 ≥ 80 → PASS" \
+    "cd '$COV-lcov' && bash expero.sh gate test_coverage"
+sed -i.bak 's/coverage_metric: "lines"/coverage_metric: "branches"/' "$COV-lcov/.expero/config.yaml"
+assert_zero "lcov: branches 81.3 ≥ 80 → PASS" \
+    "cd '$COV-lcov' && bash expero.sh gate test_coverage"
+
+# Unknown format → explicit error
+bash "$EXPERO" init "$COV-bad" new-product >/dev/null
+cat >> "$COV-bad/.expero/config.yaml" << CFG
+coverage_file: "cov.json"
+coverage_format: "not-a-real-format"
+coverage_threshold: 80
+CFG
+echo "{}" > "$COV-bad/cov.json"
+assert_nonzero "unknown coverage_format → FAIL" \
+    "cd '$COV-bad' && bash expero.sh gate test_coverage"
+assert_match "  error lists supported formats" \
+    "cd '$COV-bad' && bash expero.sh gate test_coverage" \
+    "jest-json-summary, pytest-coverage-json"
+
+echo ""
 echo "== T26p: gate all meta-gate =="
 bash "$EXPERO" init "$TMPDIR/gate-all" new-product >/dev/null
 # Fresh project: no artifacts, no review, no security → passes
@@ -865,7 +1020,7 @@ assert_zero "gate all with task-id passes when every check passes" \
     "cd '$TMPDIR/gate-all' && bash expero.sh gate all M0-001"
 assert_match "  summary line reports all N gates passed" \
     "cd '$TMPDIR/gate-all' && bash expero.sh gate all M0-001" \
-    "All 4 gates passed"
+    "All 5 gates passed"
 # Break artifacts_valid → all should fail
 cat > "$TMPDIR/gate-all/.expero/docs/adr/ADR-bad.md" << 'BAD'
 # ADR-bad: missing sections
@@ -876,7 +1031,7 @@ assert_nonzero "gate all fails when any gate fails" \
     "cd '$TMPDIR/gate-all' && bash expero.sh gate all M0-001"
 assert_match   "  summary reports failure count" \
     "cd '$TMPDIR/gate-all' && bash expero.sh gate all M0-001" \
-    "1 of 4 gates failed"
+    "1 of 5 gates failed"
 
 echo ""
 echo "== T26q: gate unknown name fails + help lists gates =="
@@ -887,6 +1042,7 @@ assert_match "help lists artifacts_valid"   "bash '$EXPERO' help" "artifacts_val
 assert_match "help lists adr_compliance"    "bash '$EXPERO' help" "adr_compliance"
 assert_match "help lists security_clean"    "bash '$EXPERO' help" "security_clean"
 assert_match "help lists ci_passes"         "bash '$EXPERO' help" "ci_passes"
+assert_match "help lists test_coverage"     "bash '$EXPERO' help" "test_coverage"
 assert_match "help lists all meta-gate"     "bash '$EXPERO' help" "^  all "
 
 echo ""

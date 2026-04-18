@@ -1,6 +1,6 @@
 version: 1.0.0
 scenario: new-product
-created: 2026-04-18T13:15:20Z
+created: 2026-04-18T13:51:38Z
 
 roles:
   core:
@@ -16,6 +16,18 @@ model_mapping:
   reasoning:  claude-opus-4-7
   execution:  claude-sonnet-4-6
   template:   claude-haiku-4-5-20251001
+
+# Coverage threshold for `bash expero.sh gate test_coverage`. All four
+# fields must be set for the gate to actively check; if coverage_threshold
+# is unset, the gate passes by default. See docs/DESIGN-coverage-gate.md.
+#
+# Example (Jest):
+#   coverage_file: "coverage/coverage-summary.json"
+#   coverage_format: "jest-json-summary"
+#   coverage_threshold: 80
+#   coverage_metric: "lines"        # lines | statements | branches | functions
+#
+# Formats: jest-json-summary, pytest-coverage-json, go-cover-func, lcov-summary
 
 # Commands run by `bash expero.sh gate ci_passes`. Each item is a
 # shell command executed in the project root; any non-zero exit fails

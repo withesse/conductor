@@ -21,6 +21,22 @@ and the project adheres to Semantic Versioning.
   source repo.
 
 ### Added
+- `expero.sh gate test_coverage` — fifth and final built-in Quality
+  Gate (SPEC §4.2 now 🟢 fully enforced). Reads a coverage artifact
+  file, parses it per declared format, compares the measured metric
+  against `coverage_threshold`. Supports four formats out of the box:
+  - `jest-json-summary` — Jest / Vitest `--coverageReporters=json-summary`
+  - `pytest-coverage-json` — `pytest --cov --cov-report=json`
+  - `go-cover-func` — `go tool cover -func=<profile>` output
+  - `lcov-summary` — `lcov --summary` text output
+  Unknown format = explicit error listing supported formats. Missing
+  threshold = pass-by-default (gate is opt-in, same pattern as
+  `ci_passes`). `gate all` now runs 5 gates.
+- `_yaml_get_string` helper — top-level scalar YAML reader.
+  Complements existing `_yaml_get_list` for scalar config values like
+  `coverage_threshold: 80`.
+- `config.yaml` template now includes a commented `coverage_*` block
+  with a Jest example so new projects know the schema.
 - `docs/DESIGN-subagent-dispatch.md` — architectural design document
   for v2.0.4 subagent scheduling. Compares three strategies
   (keep-CLI-only / replace-with-subagent / hybrid), recommends the

@@ -475,6 +475,27 @@ _json_get_bool() {
 #      line and each line carries at most one `"..."` string.
 # Empty arrays return empty output. Missing keys return empty output.
 # No dependency on jq or other JSON parsers.
+# Extract a scalar YAML value: `key: value`. Quotes stripped, whitespace
+# trimmed. Returns empty if key missing. Only top-level keys; no nested.
+_yaml_get_string() {
+  local file=$1
+  local key=$2
+  [ -f "$file" ] || return
+  awk -v k="$key" '
+    {
+      pat = "^" k ":[[:space:]]*"
+      if ($0 ~ pat) {
+        sub(pat, "")
+        gsub(/[[:space:]]+$/, "")
+        sub(/^"/, ""); sub(/"$/, "")
+        sub(/^\x27/, ""); sub(/\x27$/, "")
+        print
+        exit
+      }
+    }
+  ' "$file"
+}
+
 # Extract a YAML block-sequence list under a top-level key. Example:
 #   ci_commands:
 #     - "npm test"
@@ -751,11 +772,14 @@ cmd_gate() {
     ci_passes)
       _gate_run "ci_passes" "" _gate_ci_passes
       ;;
+    test_coverage)
+      _gate_run "test_coverage" "" _gate_test_coverage
+      ;;
     all)
       _gate_all "$task_id"
       ;;
     *)
-      err "Unknown gate: '$gate_name' (available: artifacts_valid, adr_compliance, security_clean, ci_passes, all)"
+      err "Unknown gate: '$gate_name' (available: artifacts_valid, adr_compliance, security_clean, ci_passes, test_coverage, all)"
       exit 1
       ;;
   esac
@@ -815,6 +839,13 @@ _gate_all() {
   echo ""
 
   if _gate_run "ci_passes" "" _gate_ci_passes; then
+    passed=$((passed + 1))
+  else
+    failed=$((failed + 1))
+  fi
+  echo ""
+
+  if _gate_run "test_coverage" "" _gate_test_coverage; then
     passed=$((passed + 1))
   else
     failed=$((failed + 1))
@@ -914,6 +945,171 @@ _gate_ci_passes() {
     fi
   done
   return 0
+}
+
+# Pass when measured line coverage meets the declared threshold.
+# Reads config.yaml's `coverage_file` + `coverage_format` + `coverage_threshold`
+# (+ optional `coverage_metric`, default "lines"). If no threshold is
+# set, gate passes by default ("coverage not configured" is a planner
+# concern, not a gate failure).
+#
+# Formats supported in phase 1:
+#   jest-json-summary      Jest/Vitest --coverageReporters=json-summary
+#   pytest-coverage-json   pytest --cov --cov-report=json
+#   go-cover-func          `go tool cover -func=<profile>` output
+#   lcov-summary           `lcov --summary` output
+#
+# See docs/DESIGN-coverage-gate.md for rationale + schema decisions.
+_gate_test_coverage() {
+  local config=".expero/config.yaml"
+  [ -f "$config" ] || { echo "  No config.yaml — gate passes by default"; return 0; }
+
+  local threshold metric file format
+  threshold=$(_yaml_get_string "$config" coverage_threshold)
+  file=$(_yaml_get_string     "$config" coverage_file)
+  format=$(_yaml_get_string   "$config" coverage_format)
+  metric=$(_yaml_get_string   "$config" coverage_metric)
+  : "${metric:=lines}"
+
+  if [ -z "$threshold" ]; then
+    echo "  No coverage_threshold configured — gate passes by default"
+    echo "  (add 'coverage_threshold: 80' + coverage_file/coverage_format to enable)"
+    return 0
+  fi
+  if [ -z "$file" ] || [ -z "$format" ]; then
+    echo "  coverage_threshold set but coverage_file/coverage_format missing"
+    echo "  Declare both; gate needs to know what artifact to read and how."
+    return 1
+  fi
+  if [ ! -f "$file" ]; then
+    echo "  Coverage artifact not found: $file"
+    echo "  (run your test-with-coverage command before this gate)"
+    return 1
+  fi
+
+  local measured
+  case "$format" in
+    jest-json-summary)    measured=$(_parse_coverage_jest       "$file" "$metric") ;;
+    pytest-coverage-json) measured=$(_parse_coverage_pytest     "$file") ;;
+    go-cover-func)        measured=$(_parse_coverage_go_func    "$file") ;;
+    lcov-summary)         measured=$(_parse_coverage_lcov       "$file" "$metric") ;;
+    *)
+      echo "  Unknown coverage_format: '$format'"
+      echo "  Supported: jest-json-summary, pytest-coverage-json, go-cover-func, lcov-summary"
+      return 1 ;;
+  esac
+
+  if [ -z "$measured" ]; then
+    echo "  Could not parse $file as $format"
+    echo "  (format parser returned empty — artifact may be malformed)"
+    return 1
+  fi
+
+  echo "  Format:    $format"
+  echo "  Metric:    $metric"
+  echo "  Threshold: ${threshold}%"
+  echo "  Measured:  ${measured}%"
+
+  # awk for float comparison (bash doesn't do floats natively)
+  if awk -v m="$measured" -v t="$threshold" 'BEGIN { exit !(m+0 >= t+0) }'; then
+    return 0
+  fi
+  return 1
+}
+
+# ─── coverage parsers ───
+
+# Jest / Vitest json-summary shape:
+#   { "total": { "<metric>": { "total": N, "covered": M, ..., "pct": X }, ... }, ... }
+# Assumes pretty-printed JSON (default output format). Single-line JSON
+# would need a real parser — we error out on "could not parse".
+_parse_coverage_jest() {
+  local file=$1
+  local metric=$2
+  # Walk structure: total → <metric> → pct. State machine handles both
+  # pretty-printed (metric + pct on different lines) and compact
+  # (metric + pct on same line) JSON — the bug in v0 of this parser
+  # was falling through to `next` after matching the metric, so when
+  # the inner object was on one line, pct got picked up from the NEXT
+  # key (statements instead of lines). Fix: after detecting metric,
+  # check pct on the same line in the same awk rule.
+  awk -v m="$metric" '
+    !in_total && /"total"[[:space:]]*:/ { in_total = 1 }
+    in_total {
+      if (!in_metric) {
+        pat = "\"" m "\"[[:space:]]*:"
+        if ($0 ~ pat) in_metric = 1
+      }
+      if (in_metric && match($0, /"pct"[[:space:]]*:[[:space:]]*[0-9.]+/)) {
+        s = substr($0, RSTART, RLENGTH)
+        sub(/^"pct"[[:space:]]*:[[:space:]]*/, "", s)
+        print s
+        exit
+      }
+    }
+  ' "$file"
+}
+
+# pytest-cov JSON shape:
+#   { "totals": { "percent_covered": 87.5, ... }, "files": {...} }
+# Only one totals block; grab percent_covered directly.
+_parse_coverage_pytest() {
+  local file=$1
+  awk '
+    in_totals && /"percent_covered"[[:space:]]*:[[:space:]]*[0-9.]+/ {
+      if (match($0, /"percent_covered"[[:space:]]*:[[:space:]]*[0-9.]+/)) {
+        s = substr($0, RSTART, RLENGTH)
+        sub(/^"percent_covered"[[:space:]]*:[[:space:]]*/, "", s)
+        print s
+        exit
+      }
+    }
+    /"totals"[[:space:]]*:/ { in_totals = 1 }
+  ' "$file"
+}
+
+# go tool cover -func output ends with:
+#   total:          (statements)    87.5%
+# Extract the percentage from the last "total:" line.
+_parse_coverage_go_func() {
+  local file=$1
+  awk '
+    /^total:/ {
+      for (i=1; i<=NF; i++) {
+        if ($i ~ /^[0-9.]+%$/) { gsub(/%/, "", $i); last = $i }
+      }
+    }
+    END { if (length(last) > 0) print last }
+  ' "$file"
+}
+
+# lcov --summary output shape:
+#   lines......: 87.5% (700 of 800 lines)
+#   functions..: 92.1% (...)
+#   branches...: 81.3% (...)
+_parse_coverage_lcov() {
+  local file=$1
+  local metric=$2
+  # Normalize our metric names to lcov's section names.
+  local section
+  case "$metric" in
+    lines)      section="lines" ;;
+    functions)  section="functions" ;;
+    branches)   section="branches" ;;
+    *)          section="$metric" ;;
+  esac
+  awk -v s="$section" '
+    {
+      pat = "^[[:space:]]*" s "\\.+:[[:space:]]*[0-9.]+%"
+      if ($0 ~ pat) {
+        if (match($0, /[0-9.]+%/)) {
+          v = substr($0, RSTART, RLENGTH - 1)
+          print v
+          exit
+        }
+      }
+    }
+  ' "$file"
 }
 
 # Pass when the security summary exists and lists zero CRITICAL
@@ -1211,6 +1407,18 @@ model_mapping:
   reasoning:  $MODEL_CLAUDE_REASONING
   execution:  $MODEL_CLAUDE_EXECUTION
   template:   $MODEL_CLAUDE_TEMPLATE
+
+# Coverage threshold for \`bash expero.sh gate test_coverage\`. All four
+# fields must be set for the gate to actively check; if coverage_threshold
+# is unset, the gate passes by default. See docs/DESIGN-coverage-gate.md.
+#
+# Example (Jest):
+#   coverage_file: "coverage/coverage-summary.json"
+#   coverage_format: "jest-json-summary"
+#   coverage_threshold: 80
+#   coverage_metric: "lines"        # lines | statements | branches | functions
+#
+# Formats: jest-json-summary, pytest-coverage-json, go-cover-func, lcov-summary
 
 # Commands run by \`bash expero.sh gate ci_passes\`. Each item is a
 # shell command executed in the project root; any non-zero exit fails
@@ -1694,6 +1902,7 @@ cmd_help() {
   echo "  adr_compliance <task>     Critic review exists and Verdict=APPROVED"
   echo "  security_clean            No CRITICAL findings in security summary"
   echo "  ci_passes                 Every command under ci_commands: exits 0"
+  echo "  test_coverage             Measured coverage ≥ coverage_threshold"
   echo "  all [task]                Meta-gate: runs all applicable above"
   echo ""
 
