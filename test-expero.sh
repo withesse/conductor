@@ -1138,6 +1138,58 @@ assert_zero "regen-skills runs from /tmp via abs path" \
     "cd '$TMPDIR' && bash '$SCRIPT_DIR/scripts/regen-skills.sh' '$TMPDIR/skills-check' >/dev/null"
 
 echo ""
+echo "== T26u: Claude Code subagents generated + committed =="
+AGENTS_DIR="$SCRIPT_DIR/.claude/agents"
+assert_zero ".claude/agents/ dir exists" "[ -d '$AGENTS_DIR' ]"
+for r in architect planner builder verifier critic sentinel scribe archaeologist; do
+  assert_zero "  agents/expero-$r.md exists" "[ -f '$AGENTS_DIR/expero-$r.md' ]"
+  for field in "^name: expero-$r\$" "^description: " "^model: " "^tools: "; do
+    assert_match "  expero-$r frontmatter has '$field'" \
+        "cat '$AGENTS_DIR/expero-$r.md'" "$field"
+  done
+done
+# Tier-based model mapping
+assert_match "  expero-architect uses opus (reasoning tier)" \
+    "cat '$AGENTS_DIR/expero-architect.md'" "^model: claude-opus-4-7\$"
+assert_match "  expero-planner uses sonnet (execution tier)" \
+    "cat '$AGENTS_DIR/expero-planner.md'" "^model: claude-sonnet-4-6\$"
+assert_match "  expero-verifier uses haiku (template tier)" \
+    "cat '$AGENTS_DIR/expero-verifier.md'" "^model: claude-haiku-4-5"
+# Tool whitelist: scribes (no Bash) vs doers (with Bash)
+assert_match "  expero-architect tools OMIT Bash" \
+    "cat '$AGENTS_DIR/expero-architect.md'" "^tools: Read, Write, Edit, Grep, Glob\$"
+assert_match "  expero-builder tools INCLUDE Bash" \
+    "cat '$AGENTS_DIR/expero-builder.md'" "^tools: Read, Write, Edit, Grep, Glob, Bash\$"
+
+echo ""
+echo "== T26v: subagents stay in sync with roles/*.md =="
+SUBAGENTS_TMP="$TMPDIR/subagents-regen"
+bash "$SCRIPT_DIR/scripts/regen-subagents.sh" "$SUBAGENTS_TMP" >/dev/null
+for r in architect planner builder verifier critic sentinel scribe archaeologist; do
+  committed="$AGENTS_DIR/expero-$r.md"
+  regenned="$SUBAGENTS_TMP/agents/expero-$r.md"
+  if cmp -s "$committed" "$regenned"; then
+    pass "  expero-$r subagent up-to-date"
+  else
+    fail "  expero-$r subagent up-to-date" "(run 'bash scripts/regen-subagents.sh')"
+  fi
+done
+
+echo ""
+echo "== T26w: init copies .claude/agents/expero-*.md into project =="
+bash "$EXPERO" init "$TMPDIR/sa-copy" new-product >/dev/null
+for r in architect planner builder verifier critic sentinel scribe archaeologist; do
+  assert_zero "  .claude/agents/expero-$r.md copied" \
+      "[ -f '$TMPDIR/sa-copy/.claude/agents/expero-$r.md' ]"
+done
+# Detached project can also distribute subagents on sub-init
+cp -r "$TMPDIR/sa-copy" "$TMPDIR/sa-detached"
+assert_zero "detached project sub-init succeeds" \
+    "cd '$TMPDIR/sa-detached' && bash expero.sh init sub-a migration"
+assert_zero "  sub-project has expero-builder.md" \
+    "[ -f '$TMPDIR/sa-detached/sub-a/.claude/agents/expero-builder.md' ]"
+
+echo ""
 echo "== T27: detached project can init a sub-project using .expero/scenarios =="
 # When expero.sh is copied into a project, that project becomes a valid
 # "install": the copy must be able to init another sub-project without

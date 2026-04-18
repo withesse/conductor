@@ -1749,6 +1749,23 @@ _gen_scripts() {
     mkdir -p .expero/schemas
     cp "$resource_src/schemas"/*.json .expero/schemas/
   fi
+
+  # Claude Code subagent definitions — .claude/agents/expero-*.md.
+  # Source layout differs: source repo has .claude/agents/ at top level
+  # (sibling of roles/), while a project-copy install doesn't bring
+  # .claude/ into .expero/ (it lives beside .expero/ per the standard
+  # Claude Code location). Resolve explicitly for both.
+  local subagent_src=""
+  if   [ -d "$src_root/.claude/agents" ];                    then subagent_src="$src_root/.claude/agents"
+  elif [ -d "$(dirname -- "$resource_src")/.claude/agents" ]; then subagent_src="$(dirname -- "$resource_src")/.claude/agents"
+  fi
+  if [ -n "$subagent_src" ]; then
+    mkdir -p .claude/agents
+    local f
+    for f in "$subagent_src"/expero-*.md; do
+      [ -e "$f" ] && cp "$f" .claude/agents/
+    done
+  fi
 }
 
 _gen_signals_readme() {

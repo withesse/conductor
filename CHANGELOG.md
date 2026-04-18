@@ -21,6 +21,26 @@ and the project adheres to Semantic Versioning.
   source repo.
 
 ### Added
+- `.claude/agents/expero-<role>.md` × 8 — Claude Code subagent
+  definitions for every Expero role. Phase 1 of v2.0.4 subagent
+  scheduling (see `docs/DESIGN-subagent-dispatch.md`). Main agent can
+  now dispatch via `Task(expero-architect, prompt="...")` etc.; each
+  subagent runs in its own context window with a tier-appropriate
+  model (opus for reasoning roles, sonnet for execution, haiku for
+  template) and a role-specific tool whitelist (scribes omit Bash,
+  doers include it). Phase 2 orchestrator agent still deferred.
+- `scripts/regen-subagents.sh` — idempotent generator from
+  `roles/*.md` + `roles/_meta.json`. Same pattern as regen-skills.sh.
+- `docs/SUBAGENTS.md` — install, usage, three-layer mental model
+  (CLI / Skills / Subagents, when to pick each), tool whitelist
+  rationale, extension pointer.
+- `init` copies `.claude/agents/expero-*.md` into the generated
+  project so Claude Code auto-discovers them. Only `expero-*`
+  files are copied — user's other subagents (if any) are never
+  clobbered.
+- Regression test T26v: `regen-subagents` output ↔ committed
+  `.claude/agents/*.md` byte-identical (detects drift same as
+  Skills sync test).
 - `expero.sh gate test_coverage` — fifth and final built-in Quality
   Gate (SPEC §4.2 now 🟢 fully enforced). Reads a coverage artifact
   file, parses it per declared format, compares the measured metric
