@@ -6,6 +6,20 @@ and the project adheres to Semantic Versioning.
 
 ## [Unreleased]
 
+### Changed
+- Role metadata (tier + short / long description) consolidated into
+  `roles/_meta.json`. Previously the same 8 roles were described in
+  three separate places: `tier_for_role()` case (expero.sh),
+  `_description_for_role()` case (expero.sh), and `_skill_description()`
+  case (scripts/regen-skills.sh). Editing one without the others caused
+  silent drift. Now all three are thin wrappers over `_meta_get()`
+  reading `role/field` keys from the single JSON source — adding or
+  editing a role description propagates to CLI help and the Claude
+  Code Skills plugin in one step.
+- `init` copies `roles/_meta.json` into `.expero/roles/` alongside the
+  role prompts, so detached projects resolve metadata without the
+  source repo.
+
 ### Added
 - `expero.sh gate ci_passes` — fourth built-in Quality Gate (SPEC §4.2).
   Reads `ci_commands:` (YAML block sequence) from `config.yaml`, runs

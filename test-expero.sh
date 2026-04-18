@@ -835,6 +835,49 @@ assert_match "help lists ci_passes"         "bash '$EXPERO' help" "ci_passes"
 assert_match "help lists all meta-gate"     "bash '$EXPERO' help" "^  all "
 
 echo ""
+echo "== T26q-b: roles/_meta.json is the single source of truth =="
+META="$SCRIPT_DIR/roles/_meta.json"
+assert_zero "roles/_meta.json exists" "[ -f '$META' ]"
+# Each of the 8 roles has all 3 fields
+for r in architect planner builder verifier critic sentinel scribe archaeologist; do
+  for f in tier short long; do
+    assert_match "  $r/$f present in _meta.json" "cat '$META'" "\"$r/$f\""
+  done
+done
+# tier_for_role + _description_for_role read from meta (indirectly via _meta_get)
+resolve_tier() {
+  bash -c "source '$EXPERO' >/dev/null 2>&1 && tier_for_role '$1'" 2>/dev/null
+}
+resolve_desc() {
+  bash -c "source '$EXPERO' >/dev/null 2>&1 && _description_for_role '$1'" 2>/dev/null
+}
+assert_eq "tier_for_role architect reads 'reasoning' from meta" "$(resolve_tier architect)" "reasoning"
+assert_eq "tier_for_role verifier reads 'template' from meta"   "$(resolve_tier verifier)"  "template"
+assert_eq "_description_for_role planner short"                  "$(resolve_desc planner)"   "Roadmap, task coordination"
+assert_eq "_description_for_role sentinel short"                 "$(resolve_desc sentinel)"  "Security audit"
+
+# init must copy _meta.json into .expero/roles/
+bash "$EXPERO" init "$TMPDIR/meta-copy" new-product >/dev/null
+assert_zero "init copies _meta.json" "[ -f '$TMPDIR/meta-copy/.expero/roles/_meta.json' ]"
+# Detached project can resolve metadata via _resource_root
+assert_eq "detached project resolves tier via meta" \
+    "$(bash -c "cd '$TMPDIR/meta-copy' && source ./expero.sh >/dev/null 2>&1 && tier_for_role sentinel" 2>/dev/null)" \
+    "reasoning"
+
+# Regression: editing a description in _meta.json should change both help
+# AND the next regen of the Skills plugin. Simulate by checking the
+# long descriptions in the committed SKILL.md files match the meta source.
+for r in architect sentinel archaeologist; do
+  meta_long=$(bash -c "source '$EXPERO' >/dev/null 2>&1 && _json_get_string '$META' '$r/long'" 2>/dev/null)
+  skill_desc=$(grep -E "^description: " "$SCRIPT_DIR/.claude-plugin/skills/expero-$r/SKILL.md" | sed 's/^description: //')
+  if [ "$meta_long" = "$skill_desc" ]; then
+    pass "  expero-$r SKILL description matches _meta.json"
+  else
+    fail "  expero-$r SKILL description matches _meta.json" "(run regen-skills.sh)"
+  fi
+done
+
+echo ""
 echo "== T26r: Claude Code Skills plugin exists =="
 PLUGIN_DIR="$SCRIPT_DIR/.claude-plugin"
 assert_zero "  plugin.json exists"             "[ -f '$PLUGIN_DIR/plugin.json' ]"

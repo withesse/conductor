@@ -22,32 +22,35 @@ if [ ! -d "$ROLES_DIR" ]; then
   exit 1
 fi
 
-# Skill description (English). Claude Code's matcher uses this to decide
-# when to load the skill; include the role's trigger conditions and
-# keywords. Kept in this script (not in roles/*.md) because these
-# descriptions are Claude-Code-specific metadata — if we put them in
-# the role prompt, they'd leak into `expero.sh start` output.
+# Skill description for Claude Code's matcher — read from roles/_meta.json
+# (field "long"). Same source as `_description_for_role` in expero.sh
+# (field "short"), so edits propagate to both CLI help and Claude Code
+# skill matcher without duplicate maintenance.
+_meta_get() {
+  local role=$1
+  local field=$2
+  # Inline awk (avoid sourcing expero.sh which has side effects); match
+  # the same "role/field": "value" key format as _json_get_string.
+  local meta="$REPO_ROOT/roles/_meta.json"
+  [ -f "$meta" ] || return
+  awk -v k="$role/$field" '
+    {
+      pat = "\"" k "\"[[:space:]]*:[[:space:]]*\"([^\"]*)\""
+      if (match($0, pat)) {
+        s = substr($0, RSTART, RLENGTH)
+        sub(/^"[^"]*"[[:space:]]*:[[:space:]]*"/, "", s)
+        sub(/"$/, "", s)
+        print s
+        exit
+      }
+    }
+  ' "$meta"
+}
+
 _skill_description() {
-  case "$1" in
-    architect)
-      echo "Use when writing Architecture Decision Records (ADRs), making technology choices, evaluating dependencies, or answering 'should we use X or Y' architecture questions inside an Expero Agents project (one with .expero/docs/adr/)." ;;
-    planner)
-      echo "Use when maintaining a project roadmap, sequencing milestones, defining exit criteria, or coordinating task flow inside an Expero Agents project (one with .expero/docs/roadmap.md)." ;;
-    builder)
-      echo "Use when implementing code for a specific task in an Expero Agents roadmap, strictly following existing ADRs and specs. Trigger on requests like 'implement M0-001', 'work on task X', or when the user references an Expero task-id." ;;
-    verifier)
-      echo "Use when writing or updating a test plan for an Expero Agents task, reviewing test coverage, or maintaining ci-status.md. Produces .expero/docs/specs/<task>-test-plan.md." ;;
-    critic)
-      echo "Use when reviewing code changes against ADRs and specs for an Expero Agents task. Produces .expero/docs/review/<task>.md with APPROVED or CHANGES_REQUESTED verdict. Trigger on 'review task X' or 'check this PR against ADRs'." ;;
-    sentinel)
-      echo "Use when performing security audit work inside an Expero Agents project: identifying vulnerabilities (auth, injection, crypto, dependencies, rate limits), producing .expero/docs/security/*.md reports with CVSS severity. Trigger on 'security audit', 'find vulnerabilities', 'CVSS'." ;;
-    scribe)
-      echo "Use when producing public-facing documentation (API reference, quickstart, architecture overview, onboarding, CHANGELOG) for an Expero Agents project. Trigger on 'write docs', 'update README', 'document the API'." ;;
-    archaeologist)
-      echo "Use when analyzing undocumented legacy code inside an Expero Agents project — producing module maps, known-bugs inventories, tech-debt lists, and reverse ADRs (.expero/docs/reverse-adr/RADR-*.md). Trigger on 'understand this codebase', 'reverse engineer', 'legacy analysis'." ;;
-    *)
-      echo "Use when acting as the Expero Agents '$1' role." ;;
-  esac
+  local desc
+  desc=$(_meta_get "$1" long)
+  echo "${desc:-Use when acting as the Expero Agents '$1' role.}"
 }
 
 # Uppercase-first (portable across bash 3.2 and bash 4+). Duplicated

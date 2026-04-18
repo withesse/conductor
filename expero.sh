@@ -77,14 +77,31 @@ MODEL_GEMINI_REASONING="gemini-3.1-pro"
 MODEL_GEMINI_EXECUTION="gemini-3-flash"
 MODEL_GEMINI_TEMPLATE="gemini-3.1-flash-lite"
 
-# Map role → tier
+# Map role → tier. Source of truth is roles/_meta.json (tier field);
+# keeping the lookup here-as-function because it's called before
+# _resource_root for error contexts and must be robust to a missing
+# .expero/ (e.g. when users call `start` outside a project).
 tier_for_role() {
-  case "$1" in
-    architect|sentinel|archaeologist) echo "reasoning" ;;
-    planner|builder|critic|scribe)    echo "execution" ;;
-    verifier)                          echo "template" ;;
-    *) err "Unknown role: $1"; exit 1 ;;
-  esac
+  local tier
+  tier=$(_meta_get "$1" tier)
+  if [ -z "$tier" ]; then
+    err "Unknown role: $1"
+    exit 1
+  fi
+  echo "$tier"
+}
+
+# Look up a role metadata field ("tier", "short", "long") from
+# roles/_meta.json. Flat "role/field" keys let us reuse _json_get_string
+# without a nested-parser. Empty output = key not found.
+_meta_get() {
+  local role=$1
+  local field=$2
+  local root f
+  root=$(_resource_root 2>/dev/null) || return
+  f="$root/roles/_meta.json"
+  [ -f "$f" ] || return
+  _json_get_string "$f" "$role/$field"
 }
 
 # Map (tool, role) → model ID. Validates role first, then tool, so error
@@ -1230,22 +1247,14 @@ _list_roles() {
   done
 }
 
-# Short English description for each role, shown in `help`. Kept as a
-# bash case rather than a JSON field because role descriptions are part
-# of the CLI UX contract — they change rarely and centralizing them here
-# avoids invented formats (frontmatter, separate description files).
+# Short English description for each role, shown in `help`. Reads
+# from roles/_meta.json (field "short"). The same metadata drives
+# tier_for_role and the Skills plugin's long description — changing
+# a description in _meta.json propagates everywhere.
 _description_for_role() {
-  case "$1" in
-    architect)     echo "Architecture decisions, ADRs" ;;
-    planner)       echo "Roadmap, task coordination" ;;
-    builder)       echo "Code implementation" ;;
-    verifier)      echo "Test plans, CI status" ;;
-    critic)        echo "Code review" ;;
-    sentinel)      echo "Security audit" ;;
-    scribe)        echo "Public documentation" ;;
-    archaeologist) echo "Legacy code analysis" ;;
-    *)             echo "(no description)" ;;
-  esac
+  local desc
+  desc=$(_meta_get "$1" short)
+  echo "${desc:-(no description)}"
 }
 
 # Read the scenario name of the *current* project, or empty if not in a
@@ -1494,6 +1503,9 @@ _gen_scripts() {
 
   mkdir -p .expero/roles
   cp "$resource_src/roles"/*.md .expero/roles/
+  # Role metadata file — tier + descriptions for every role. Also needed
+  # at runtime inside a detached project.
+  [ -f "$resource_src/roles/_meta.json" ] && cp "$resource_src/roles/_meta.json" .expero/roles/
 
   if [ -d "$resource_src/scenarios" ]; then
     mkdir -p .expero/scenarios/roadmaps

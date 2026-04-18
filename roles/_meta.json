@@ -1,0 +1,35 @@
+{
+  "_comment": "Role metadata. Source of truth for tier (CLI model selection), short (CLI help / CLAUDE.md), and long (Claude Code Skills description). Keys use role/field format to keep the parser flat (_json_get_string works unchanged). If you add a role, add 3 entries here, add roles/<role>.md, and update AGENTS.md's ownership table.",
+
+  "architect/tier":  "reasoning",
+  "architect/short": "Architecture decisions, ADRs",
+  "architect/long":  "Use when writing Architecture Decision Records (ADRs), making technology choices, evaluating dependencies, or answering 'should we use X or Y' architecture questions inside an Expero Agents project (one with .expero/docs/adr/).",
+
+  "planner/tier":    "execution",
+  "planner/short":   "Roadmap, task coordination",
+  "planner/long":    "Use when maintaining a project roadmap, sequencing milestones, defining exit criteria, or coordinating task flow inside an Expero Agents project (one with .expero/docs/roadmap.md).",
+
+  "builder/tier":    "execution",
+  "builder/short":   "Code implementation",
+  "builder/long":    "Use when implementing code for a specific task in an Expero Agents roadmap, strictly following existing ADRs and specs. Trigger on requests like 'implement M0-001', 'work on task X', or when the user references an Expero task-id.",
+
+  "verifier/tier":   "template",
+  "verifier/short":  "Test plans, CI status",
+  "verifier/long":   "Use when writing or updating a test plan for an Expero Agents task, reviewing test coverage, or maintaining ci-status.md. Produces .expero/docs/specs/<task>-test-plan.md.",
+
+  "critic/tier":     "execution",
+  "critic/short":    "Code review",
+  "critic/long":     "Use when reviewing code changes against ADRs and specs for an Expero Agents task. Produces .expero/docs/review/<task>.md with APPROVED or CHANGES_REQUESTED verdict. Trigger on 'review task X' or 'check this PR against ADRs'.",
+
+  "sentinel/tier":   "reasoning",
+  "sentinel/short":  "Security audit",
+  "sentinel/long":   "Use when performing security audit work inside an Expero Agents project: identifying vulnerabilities (auth, injection, crypto, dependencies, rate limits), producing .expero/docs/security/*.md reports with CVSS severity. Trigger on 'security audit', 'find vulnerabilities', 'CVSS'.",
+
+  "scribe/tier":     "execution",
+  "scribe/short":    "Public documentation",
+  "scribe/long":     "Use when producing public-facing documentation (API reference, quickstart, architecture overview, onboarding, CHANGELOG) for an Expero Agents project. Trigger on 'write docs', 'update README', 'document the API'.",
+
+  "archaeologist/tier":  "reasoning",
+  "archaeologist/short": "Legacy code analysis",
+  "archaeologist/long":  "Use when analyzing undocumented legacy code inside an Expero Agents project — producing module maps, known-bugs inventories, tech-debt lists, and reverse ADRs (.expero/docs/reverse-adr/RADR-*.md). Trigger on 'understand this codebase', 'reverse engineer', 'legacy analysis'."
+}
