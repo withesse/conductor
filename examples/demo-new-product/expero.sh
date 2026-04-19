@@ -30,7 +30,7 @@
 
 set -euo pipefail
 
-EXPERO_VERSION="1.0.0"
+EXPERO_VERSION="1.1.0"
 COMMAND=${1:-help}
 
 # Resolve the absolute path of this script at load time, before any cd.

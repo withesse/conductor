@@ -2,7 +2,7 @@
 
 > A role-based AI agent collaboration framework for large-scale software engineering.
 
-[![Version](https://img.shields.io/badge/version-1.0.0-blue)]() [![License](https://img.shields.io/badge/license-CC0-green)]()
+[![Version](https://img.shields.io/badge/version-1.1.0-blue)]() [![License](https://img.shields.io/badge/license-CC0-green)]()
 
 ---
 

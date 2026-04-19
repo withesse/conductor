@@ -6,7 +6,25 @@ and the project adheres to Semantic Versioning.
 
 ## [Unreleased]
 
-### Added (this round)
+_No unreleased changes._
+
+## [1.1.0] — 2026-04-19
+
+Large minor release. SPEC implementation status rises substantially
+— §4.2 Quality Gates goes from `📋 v2.0` (planned) to `🟢 enforced`
+(5/5 gates + composite `pr` shipped), §4.3 Stop Signal goes from
+`🟡 basic` to `🟢 enforced` (structured signals + lifecycle archive
++ orchestrator auto-dispatch), §5.2 Artifact Schema goes from
+`🟡 documented` to `🟢 enforced` (validate + schemas/*.json).
+
+The project's 2024 "multi-terminal CLI" model now coexists with
+Claude Code Skills (mid-session role switch) and Subagents (parallel
+dispatch + orchestrator), with `roles/_meta.json` as the single source
+of truth feeding all three renderings. Codex and Gemini users are
+unaffected — their `bash expero.sh start <role> ... <tool>` flow
+works exactly as in 1.0.0.
+
+### Added — gates
 - `expero.sh gate pr <task-id>` — sixth gate, a composite for pre-PR
   checks: `artifacts_valid + adr_compliance + ci_passes`. Narrower
   than `gate all` — omits `security_clean` (milestone-level) and
@@ -392,5 +410,6 @@ Initial public release.
   tools (Codex, Gemini CLI, Aider, etc.)
 - `LICENSE` — CC0 1.0 Universal Public Domain Dedication
 
-[Unreleased]: https://github.com/withesse/expero-agents/compare/v1.0.0...HEAD
+[Unreleased]: https://github.com/withesse/expero-agents/compare/v1.1.0...HEAD
+[1.1.0]: https://github.com/withesse/expero-agents/releases/tag/v1.1.0
 [1.0.0]: https://github.com/withesse/expero-agents/releases/tag/v1.0.0
