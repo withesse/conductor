@@ -1162,6 +1162,37 @@ assert_match "  expero-builder tools INCLUDE Bash" \
     "cat '$AGENTS_DIR/expero-builder.md'" "^tools: Read, Write, Edit, Grep, Glob, Bash\$"
 
 echo ""
+echo "== T26u-b: orchestrator subagent (Phase 2) =="
+# Orchestrator is hand-written (not regen'd from roles/) because it's a
+# meta-agent that dispatches other subagents, not a role that does work.
+# Guard: must exist, have frontmatter, reference every role it can
+# dispatch, explicitly list the signal→role mapping.
+ORCH="$AGENTS_DIR/expero-orchestrator.md"
+assert_zero ".claude/agents/expero-orchestrator.md exists" "[ -f '$ORCH' ]"
+assert_match "  orchestrator has name frontmatter"   "cat '$ORCH'" "^name: expero-orchestrator\$"
+assert_match "  orchestrator has description"        "cat '$ORCH'" "^description: "
+assert_match "  orchestrator has Task tool enabled"  "cat '$ORCH'" "^tools:.*Task"
+assert_match "  orchestrator uses reasoning model"   "cat '$ORCH'" "^model: claude-opus"
+# Drift guard: orchestrator must reference every role it's expected
+# to dispatch. If someone adds a 9th role without updating the
+# orchestrator, this test points at it.
+for r in planner architect builder verifier critic sentinel scribe archaeologist; do
+  assert_match "  orchestrator references expero-$r" \
+      "cat '$ORCH'" "expero-$r"
+done
+# Signal → role dispatch table must be present (regression for ROADMAP 2.0.1 close)
+for signal_pair in "NEEDS_ARCH_REVIEW.*architect" "NEEDS_SPEC_CLARIFICATION.*planner" "NEEDS_SECURITY_REVIEW.*sentinel" "BLOCKED_BY_"; do
+  assert_match "  orchestrator maps $signal_pair" \
+      "cat '$ORCH'" "$signal_pair"
+done
+
+echo ""
+echo "== T26u-c: init copies orchestrator into project =="
+bash "$EXPERO" init "$TMPDIR/orch-copy" new-product >/dev/null
+assert_zero "  .claude/agents/expero-orchestrator.md copied" \
+    "[ -f '$TMPDIR/orch-copy/.claude/agents/expero-orchestrator.md' ]"
+
+echo ""
 echo "== T26v: subagents stay in sync with roles/*.md =="
 SUBAGENTS_TMP="$TMPDIR/subagents-regen"
 bash "$SCRIPT_DIR/scripts/regen-subagents.sh" "$SUBAGENTS_TMP" >/dev/null

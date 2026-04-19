@@ -21,6 +21,27 @@ and the project adheres to Semantic Versioning.
   source repo.
 
 ### Added
+- `.claude/agents/expero-orchestrator.md` — Phase 2 of v2.0.4
+  subagent dispatch. Meta-agent that orchestrates the 8 role
+  subagents end-to-end: reads roadmap + pending signals, dispatches
+  roles in the scenario-appropriate sequence, interprets Critic's
+  verdict, runs `gate all`, stops before marking completed to ask
+  the user. Signal → handler role mapping built in
+  (`NEEDS_ARCH_REVIEW → architect`, etc.) — resolving a signal is
+  one turn ("orchestrator, clear the pending signals"). Closes the
+  last open item in ROADMAP 2.0.1 (Role prompt auto-references
+  unresolved signals).
+- SPEC §4.3 Stop Signal status upgraded from 🟡 partial to
+  🟢 enforced — orchestrator gives the framework a built-in
+  "who handles what" mechanism, not just a dispatch hint in status.
+- Guardrails built into orchestrator prompt: 10-dispatch budget per
+  task, no auto-resolution of `BLOCKED_BY_*`, scenario-boundary
+  warning if asked to dispatch outside active_roles, refuses to mark
+  completed when any gate failed.
+- Regression tests T26u-b / T26u-c: orchestrator exists, has correct
+  frontmatter, references every role (drift guard for adding a 9th
+  role without updating orchestrator), maps each signal type to its
+  handler role, propagates through init.
 - `.claude/agents/expero-<role>.md` × 8 — Claude Code subagent
   definitions for every Expero role. Phase 1 of v2.0.4 subagent
   scheduling (see `docs/DESIGN-subagent-dispatch.md`). Main agent can

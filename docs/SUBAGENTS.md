@@ -174,15 +174,67 @@ default). CLI help, Skills, and Subagents all pick it up automatically.
 
 ---
 
-## Phase 2 — orchestrator (not shipped)
+## Phase 2 — orchestrator (shipped in Unreleased)
 
-Tracked for v2.0.4. Adds `.claude/agents/expero-orchestrator.md` that
-reads `.expero/docs/roadmap.md`, identifies the next task, dispatches
-the appropriate role sequence, handles stop signals by re-dispatching
-to the right handler role.
+`.claude/agents/expero-orchestrator.md` coordinates role dispatches
+end-to-end. Use it when you want to ship a task in one turn instead of
+dispatching roles yourself:
 
-Until Phase 2 ships, the main agent is the orchestrator — you tell it
-what to dispatch.
+```
+You: "Ship M0-001 end-to-end."
+Orchestrator: [Task(expero-planner, ...) → spec verified]
+             [Task(expero-verifier, ...) → test plan written]
+             [Task(expero-builder, ...) → code + tests written]
+             [Task(expero-critic, ...) → APPROVED]
+             [bash expero.sh gate all M0-001 → all 5 gates PASS]
+             "M0-001 complete. Mark roadmap as completed? (Y/n)"
+```
+
+### What it does
+
+1. Reads `.expero/docs/roadmap.md` to find the next task (or honor your
+   explicit task-id).
+2. Scans `.expero/signals/*.json` for unresolved signals and dispatches
+   the right handler role to resolve them first.
+3. Dispatches roles in the correct sequence per scenario:
+   - new-product / migration / refactor / multi-service:
+     Planner → Architect? → Verifier → Builder → Critic
+   - security-audit: Sentinel → Critic
+   - legacy-analysis: Archaeologist → (no Builder/Verifier)
+   - tech-docs: Scribe → Architect review
+4. Interprets the Critic's verdict and runs `gate all <task>` before
+   marking completed.
+5. Stops and asks you before the final "completed" status update
+   (unless you said "ship without asking").
+
+### When NOT to use it
+
+- **Single-role questions** ("Architect, what should we use for
+  auth?") — use the role's skill or Task(expero-architect, ...) directly.
+- **Debugging** — debugging mid-implementation is friction under an
+  orchestrator; drop into an individual role session instead.
+- **When the scenario lacks Critic** (e.g., legacy-analysis) — you
+  lose the verdict-based "done" signal. Orchestrator adapts, but
+  manual dispatch may feel cleaner.
+
+### Guardrails built in
+
+- Will not mark a task completed if any gate fails.
+- Stops at 10 dispatches per task and asks you (prevents loops).
+- Refuses to auto-resolve `BLOCKED_BY_<id>` signals (those are real
+  task dependencies, not handler assignments).
+- Warns if you ask it to dispatch a role not in the scenario's
+  `active_roles[]`.
+
+### Source
+
+`.claude/agents/expero-orchestrator.md` is hand-written (not
+regenerated from `roles/`) because the orchestrator's system prompt
+is structurally different from a role's — it describes dispatch
+decisions, not work to do. `test-expero.sh` guards that the
+orchestrator references every role and the full signal→role mapping,
+so adding a 9th role without updating the orchestrator fails the
+test suite.
 
 ---
 
