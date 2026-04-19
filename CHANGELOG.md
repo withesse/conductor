@@ -9,11 +9,10 @@ and the project adheres to Semantic Versioning.
 ### Added
 - `new-java-backend` scenario — ninth built-in scenario, tailored for
   enterprise Java backends (Spring Boot 3 / Java 17 / Maven multi-module
-  / MyBatis-Plus / RBAC / multi-tenant). Covers the ruoyi-vue-pro /
-  jeecg-boot / nsc-cli shape. Roadmap template `scenarios/roadmaps/
-  new-java-backend.md` defines 5 milestones (M0 Skeleton → M1 Security &
-  Multi-tenancy → M2 Common Infrastructure → M3 Code Generator (opt) →
-  M4 Business Modules → M5 Release). Active roles include Scribe for
+  / MyBatis-Plus / RBAC / multi-tenant). Roadmap template
+  `scenarios/roadmaps/new-java-backend.md` defines 5 milestones
+  (M0 Skeleton → M1 Security & Multi-tenancy → M2 Common Infrastructure
+  → M3 Code Generator (opt) → M4 Business Modules → M5 Release). Active roles include Scribe for
   API contract docs; `extra_dirs` adds `.conductor/docs/modules/` and
   `.conductor/docs/api-contracts/` for per-module documentation.
   Existing T2/T3/T4/T10/T23/T26 test groups auto-cover it via the

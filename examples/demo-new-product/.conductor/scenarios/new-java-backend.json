@@ -1,0 +1,8 @@
+{
+  "name": "new-java-backend",
+  "description": "Build an enterprise Java backend (Spring Boot multi-module, RBAC, multi-tenant)",
+  "active_roles": ["planner", "architect", "builder", "verifier", "critic", "scribe"],
+  "extension_roles": ["scribe"],
+  "extra_dirs": [".conductor/docs/modules", ".conductor/docs/api-contracts", ".conductor/docs/public"],
+  "roadmap_template": "roadmaps/new-java-backend.md"
+}

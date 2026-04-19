@@ -311,7 +311,7 @@ cmd_status() {
   echo ""
 
   if [ ! -f ".conductor/config.yaml" ]; then
-    err "Not an Conductor project (missing .conductor/config.yaml)"
+    err "Not a Conductor project (missing .conductor/config.yaml)"
     exit 1
   fi
 
@@ -961,7 +961,7 @@ cmd_validate() {
   local target=${1:-}
 
   if [ ! -f ".conductor/config.yaml" ]; then
-    err "Not an Conductor project (missing .conductor/config.yaml)"
+    err "Not a Conductor project (missing .conductor/config.yaml)"
     exit 1
   fi
 
@@ -1050,7 +1050,7 @@ cmd_gate() {
   local task_id=${2:-}
 
   if [ ! -f ".conductor/config.yaml" ]; then
-    err "Not an Conductor project (missing .conductor/config.yaml)"
+    err "Not a Conductor project (missing .conductor/config.yaml)"
     exit 1
   fi
 
