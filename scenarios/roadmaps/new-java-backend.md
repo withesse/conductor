@@ -1,6 +1,6 @@
 # Roadmap (Java Backend — enterprise multi-module)
 
-> Template for an enterprise Spring Boot stack: multi-module Maven,
+> Template for an enterprise Spring Boot stack: Gradle multi-project,
 > MyBatis-Plus, multi-tenant RBAC, modular business domains. Tailor
 > M1 tasks to your specific business domain; M0 should stay close to
 > this template.
@@ -13,8 +13,8 @@ dependency when starting a project. As of this template version:
 | Concern | Choice | Version anchor |
 |---|---|---|
 | JDK | Temurin / Eclipse Adoptium | **Java 25 LTS** (or next LTS, never non-LTS) |
-| Build | Maven | **3.9+** (Maven 4 when GA) |
-| Framework | Spring Boot | **latest 3.x GA** (Spring Boot 4 when GA stable) |
+| Build | Gradle | **9+** (Kotlin DSL, settings.gradle.kts) |
+| Framework | Spring Boot | **latest 4.x GA** |
 | Security | Spring Security | bundled with Spring Boot |
 | Persistence | MyBatis-Plus | **3.5+** |
 | Migrations | Flyway | **10.x+** |
@@ -23,7 +23,7 @@ dependency when starting a project. As of this template version:
 | JSON | Jackson | bundled with Spring Boot |
 | Test | JUnit 5 + Testcontainers | latest |
 | Coverage | Jacoco | **0.8.12+** |
-| Format | Spotless Maven plugin | latest, Google-Java-Format profile |
+| Format | Spotless Gradle plugin | latest, Google-Java-Format profile |
 | Observability | Micrometer + Prometheus | bundled |
 
 Record the *exact* versions you initialize with in
@@ -34,19 +34,19 @@ different tasks stay consistent. Bump deliberately, not ambiently.
 
 | ID | Task | Status | Owner | Depends | Commit |
 |----|------|--------|-------|---------|--------|
-| M0-001 | Maven multi-module scaffold (bom / infra / system / main-app) with Java latest-LTS toolchain | todo | builder | — | |
+| M0-001 | Gradle multi-project scaffold (bom / infra / system / main-app) with `settings.gradle.kts` + Java toolchain pinned to latest LTS | todo | builder | — | |
 | M0-002 | Spring Boot boot class + `application.yml` (profiles: dev / test / prod) | todo | builder | M0-001 | |
 | M0-003 | Database connection via MyBatis-Plus; Flyway baseline migration v1 | todo | builder | M0-002 | |
 | M0-004 | Redis connection (Lettuce) + health indicator | todo | builder | M0-002 | |
 | M0-005 | Global exception handler + unified `CommonResult<T>` DTO | todo | builder | M0-002 | |
 | M0-006 | Logback + request/trace-id filter (one log line per request) | todo | builder | M0-002 | |
-| M0-007 | Maven CI: `verify` + Jacoco report + Spotless check | todo | builder | M0-005 | |
-| M0-008 | Smoke test: `mvn spring-boot:run` + `/actuator/health` returns UP | todo | verifier | M0-007 | |
-| M0-009 | ADR-0001 records exact stack versions (Java / Spring Boot / Maven / deps) | todo | architect | M0-007 | |
+| M0-007 | Gradle CI: `./gradlew check` (includes test + jacocoTestReport + spotlessCheck) | todo | builder | M0-005 | |
+| M0-008 | Smoke test: `./gradlew bootRun` + `/actuator/health` returns UP | todo | verifier | M0-007 | |
+| M0-009 | ADR-0001 records exact stack versions (Java / Spring Boot / Gradle / deps) | todo | architect | M0-007 | |
 
 **M0 Exit Criteria**
-- [ ] `mvn -B -q clean verify` passes
-- [ ] `mvn spring-boot:run` boots with no stack traces
+- [ ] `./gradlew clean build` passes
+- [ ] `./gradlew bootRun` boots with no stack traces
 - [ ] `/actuator/health` returns `{"status":"UP"}`
 - [ ] `gate all` green (artifacts_valid + ci_passes; others pass-by-default)
 - [ ] No business logic yet — this is pure infrastructure
@@ -105,7 +105,7 @@ different tasks stay consistent. Bump deliberately, not ambiently.
 |----|------|--------|-------|---------|--------|
 | M3-001 | Read db schema → TableInfo / ColumnInfo model | todo | architect | M2 done | |
 | M3-002 | Freemarker templates: Entity / Mapper / Service / Controller / VO | todo | builder | M3-001 | |
-| M3-003 | CLI: `mvn generator:gen -Dtable=sys_user` | todo | builder | M3-002 | |
+| M3-003 | Gradle task: `./gradlew :generator:gen --table=sys_user` | todo | builder | M3-002 | |
 | M3-004 | Front-end scaffold output (optional) | todo | builder | M3-003 | |
 
 **M3 Exit Criteria**
