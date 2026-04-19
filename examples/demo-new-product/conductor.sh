@@ -31,6 +31,18 @@
 set -euo pipefail
 
 CONDUCTOR_VERSION="2.0.0"
+
+# Strip --quiet / -q from the arg list (before COMMAND), set the env
+# var, and continue with remaining args. Single-point handling keeps
+# every command honoring the flag without per-command wiring.
+ARGS=()
+for a in "$@"; do
+  case "$a" in
+    --quiet|-q) CONDUCTOR_QUIET=1; export CONDUCTOR_QUIET ;;
+    *) ARGS+=("$a") ;;
+  esac
+done
+set -- "${ARGS[@]:-}"
 COMMAND=${1:-help}
 
 # Resolve the absolute path of this script at load time, before any cd.
@@ -46,18 +58,32 @@ fi
 unset _CONDUCTOR_SRC
 
 # ─────────────────────────────────────────
-# Color output
+# Output helpers
 # ─────────────────────────────────────────
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-RED='\033[0;31m'
-BLUE='\033[0;34m'
-NC='\033[0m'
+# Color codes, disabled automatically when stdout isn't a terminal (so
+# CI logs don't fill with escape sequences). `printf` used instead of
+# `echo -e` because `echo` in some shells (dash, older bash on macOS)
+# behaves differently for -e and backslash sequences.
+if [ -t 1 ]; then
+  GREEN=$(printf '\033[0;32m')
+  YELLOW=$(printf '\033[1;33m')
+  RED=$(printf '\033[0;31m')
+  BLUE=$(printf '\033[0;34m')
+  NC=$(printf '\033[0m')
+else
+  GREEN='' YELLOW='' RED='' BLUE='' NC=''
+fi
 
-info()  { echo -e "${BLUE}ℹ${NC}  $1"; }
-ok()    { echo -e "${GREEN}✓${NC}  $1"; }
-warn()  { echo -e "${YELLOW}⚠${NC}  $1"; }
-err()   { echo -e "${RED}✗${NC}  $1" >&2; }
+# CONDUCTOR_QUIET suppresses info/ok/warn output (errors still print).
+# Useful for CI where gate output should be exit-code only plus a
+# concise verdict, no decorative banners. Set from env or via
+# --quiet flag (stripped below from the arg list).
+: "${CONDUCTOR_QUIET:=0}"
+
+info()  { [ "$CONDUCTOR_QUIET" = "1" ] || printf '%sℹ%s  %s\n' "$BLUE"   "$NC" "$1"; }
+ok()    { [ "$CONDUCTOR_QUIET" = "1" ] || printf '%s✓%s  %s\n' "$GREEN"  "$NC" "$1"; }
+warn()  { [ "$CONDUCTOR_QUIET" = "1" ] || printf '%s⚠%s  %s\n' "$YELLOW" "$NC" "$1"; }
+err()   { printf '%s✗%s  %s\n' "$RED" "$NC" "$1" >&2; }
 
 # ─────────────────────────────────────────
 # Model configuration
@@ -572,6 +598,260 @@ _json_get_array() {
 # ─────────────────────────────────────────
 # restart: milestone boundary operation
 # ─────────────────────────────────────────
+# ─────────────────────────────────────────
+# resume: pick up where you left off
+# ─────────────────────────────────────────
+# Scans roadmap + signals to show "last touched task" + "what's
+# blocking" + "what to do next". The goal is the 3am / Monday-morning
+# case: you ran `start builder M0-003` a week ago, closed the terminal,
+# and now you need a one-screen recap before typing anything.
+cmd_resume() {
+  if [ ! -f ".conductor/config.yaml" ]; then
+    err "Not a Conductor project (missing .conductor/config.yaml)"
+    exit 1
+  fi
+
+  local scenario
+  scenario=$(_current_scenario)
+  info "Resume in scenario: ${scenario:-unknown}"
+  echo ""
+
+  # Last in-progress task (roadmap.md's table format: | id | title | status | owner | ... )
+  local roadmap=".conductor/docs/roadmap.md"
+  local in_prog_line=""
+  if [ -f "$roadmap" ]; then
+    in_prog_line=$(awk -F'|' '
+      /\|[[:space:]]+in-progress[[:space:]]+\|/ {
+        # Trim and save — keep the LAST one (users work top-to-bottom).
+        last = $0
+      }
+      END { if (last) print last }
+    ' "$roadmap")
+  fi
+
+  if [ -n "$in_prog_line" ]; then
+    local task_id task_title task_owner
+    task_id=$(echo "$in_prog_line"    | awk -F'|' '{gsub(/^[[:space:]]+|[[:space:]]+$/, "", $2); print $2}')
+    task_title=$(echo "$in_prog_line" | awk -F'|' '{gsub(/^[[:space:]]+|[[:space:]]+$/, "", $3); print $3}')
+    task_owner=$(echo "$in_prog_line" | awk -F'|' '{gsub(/^[[:space:]]+|[[:space:]]+$/, "", $5); print $5}')
+    echo "Last in-progress task:"
+    printf "  %-10s %s\n" "ID:"     "${task_id:-(unknown)}"
+    printf "  %-10s %s\n" "Title:"  "${task_title:-(unknown)}"
+    printf "  %-10s %s\n" "Owner:"  "${task_owner:-(unknown)}"
+    echo ""
+  else
+    echo "No in-progress tasks found."
+    echo ""
+  fi
+
+  # Open signals — same logic cmd_status uses, abridged.
+  local open=0 open_arch=0 open_spec=0 open_sec=0 open_blocked=0
+  if [ -d ".conductor/signals" ]; then
+    local sig
+    for sig in .conductor/signals/*.json; do
+      [ -e "$sig" ] || continue
+      local resolved stype
+      resolved=$(_json_get_bool   "$sig" resolved)
+      [ "$resolved" = "true" ] && continue
+      stype=$(_json_get_string "$sig" type)
+      open=$((open + 1))
+      case "$stype" in
+        NEEDS_ARCH_REVIEW)        open_arch=$((open_arch + 1)) ;;
+        NEEDS_SPEC_CLARIFICATION) open_spec=$((open_spec + 1)) ;;
+        NEEDS_SECURITY_REVIEW)    open_sec=$((open_sec + 1)) ;;
+        BLOCKED_BY_*)             open_blocked=$((open_blocked + 1)) ;;
+      esac
+    done
+  fi
+  echo "Open signals (structured):"
+  printf "  %-28s %s\n" "total unresolved:" "$open"
+  [ "$open_arch"    -gt 0 ] && printf "  %-28s %s  → dispatch to: architect\n" "NEEDS_ARCH_REVIEW:"        "$open_arch"
+  [ "$open_spec"    -gt 0 ] && printf "  %-28s %s  → dispatch to: planner\n"   "NEEDS_SPEC_CLARIFICATION:" "$open_spec"
+  [ "$open_sec"     -gt 0 ] && printf "  %-28s %s  → dispatch to: sentinel\n"  "NEEDS_SECURITY_REVIEW:"    "$open_sec"
+  [ "$open_blocked" -gt 0 ] && printf "  %-28s %s  (waiting on other tasks)\n" "BLOCKED_BY_*:"             "$open_blocked"
+  echo ""
+
+  # Suggested next. Priority: unresolved signals > in-progress task > first todo.
+  echo "Suggested next:"
+  if   [ "$open_arch"    -gt 0 ]; then echo "  bash conductor.sh start architect   # resolve arch signals first"
+  elif [ "$open_spec"    -gt 0 ]; then echo "  bash conductor.sh start planner     # resolve spec signals first"
+  elif [ "$open_sec"     -gt 0 ]; then echo "  bash conductor.sh start sentinel    # resolve security signals first"
+  elif [ -n "$in_prog_line" ];    then
+    # Reuse owner from the in-progress row if present and sensible.
+    local next_role=${task_owner:-builder}
+    echo "  bash conductor.sh start $next_role $task_id"
+  else
+    echo "  bash conductor.sh status            # (no in-progress task; pick one from roadmap)"
+  fi
+  echo "  # or in Claude Code: ask the conductor-orchestrator subagent to 'continue'"
+}
+
+# ─────────────────────────────────────────
+# doctor: diagnose project health / drift
+# ─────────────────────────────────────────
+# A one-shot snapshot of "is this Conductor project internally
+# consistent?" — catches issues that aren't errors (validate / gate
+# would already fail on those) but are "quietly wrong" states:
+# tasks marked completed with no commit hash, orphan specs without a
+# corresponding roadmap task, signals that refer to missing files.
+cmd_doctor() {
+  if [ ! -f ".conductor/config.yaml" ]; then
+    err "Not a Conductor project (missing .conductor/config.yaml)"
+    exit 1
+  fi
+
+  info "Conductor project health check"
+  echo ""
+
+  local issues=0 warnings=0
+  local fail_msg=""
+  _doctor_ok()   { printf "  %s✓%s  %s\n" "$GREEN"  "$NC" "$1"; }
+  _doctor_warn() { printf "  %s⚠%s  %s\n" "$YELLOW" "$NC" "$1"; warnings=$((warnings + 1)); }
+  _doctor_fail() { printf "  %s✗%s  %s\n" "$RED"    "$NC" "$1"; issues=$((issues + 1)); }
+
+  # 1. Structure: required directories
+  echo "Structure:"
+  local required_dirs=(.conductor .conductor/docs .conductor/roles .conductor/scenarios .conductor/schemas .conductor/signals)
+  for d in "${required_dirs[@]}"; do
+    if [ -d "$d" ]; then
+      _doctor_ok "$d present"
+    else
+      _doctor_fail "$d missing"
+    fi
+  done
+  # Required files
+  for f in CLAUDE.md .conductor/config.yaml .conductor/docs/roadmap.md .conductor/docs/ci-status.md; do
+    if [ -f "$f" ]; then
+      _doctor_ok "$f present"
+    else
+      _doctor_fail "$f missing"
+    fi
+  done
+  echo ""
+
+  # 2. ADR chain integrity: every "Superseded by ADR-NNNN" must point
+  # at an ADR file that actually exists in adr/.
+  echo "ADR chain:"
+  local broken_supersede=0 adr_count=0
+  if [ -d ".conductor/docs/adr" ]; then
+    local adr
+    for adr in .conductor/docs/adr/ADR-*.md; do
+      [ -e "$adr" ] || continue
+      adr_count=$((adr_count + 1))
+      # Look for "Superseded by ADR-NNNN" line; verify target exists.
+      local target
+      target=$(grep -oE "Superseded by ADR-[0-9]+" "$adr" | head -1 | awk '{print $3}')
+      if [ -n "$target" ]; then
+        if ! ls .conductor/docs/adr/"$target"-*.md >/dev/null 2>&1; then
+          _doctor_fail "$adr references $target but it doesn't exist"
+          broken_supersede=$((broken_supersede + 1))
+        fi
+      fi
+    done
+  fi
+  if [ "$adr_count" -eq 0 ]; then
+    _doctor_ok "no ADRs yet (new project)"
+  elif [ "$broken_supersede" -eq 0 ]; then
+    _doctor_ok "$adr_count ADR(s), all supersede references resolved"
+  fi
+  echo ""
+
+  # 3. Roadmap: tasks marked completed should have a commit hash in
+  # the last column (column name varies — we look for a 7+ char hex
+  # token, the universal shape of git short hashes).
+  echo "Roadmap:"
+  local roadmap=".conductor/docs/roadmap.md"
+  local missing_commit=0 completed=0
+  if [ -f "$roadmap" ]; then
+    while IFS= read -r line; do
+      # Extract columns: | id | title | status | owner | depends | commit |
+      local status commit
+      status=$(echo "$line" | awk -F'|' '{gsub(/^[[:space:]]+|[[:space:]]+$/, "", $4); print $4}')
+      [ "$status" = "completed" ] || continue
+      completed=$((completed + 1))
+      commit=$(echo "$line" | awk -F'|' '{gsub(/^[[:space:]]+|[[:space:]]+$/, "", $7); print $7}')
+      if ! echo "$commit" | grep -qE '^[0-9a-f]{7,}'; then
+        local task_id
+        task_id=$(echo "$line" | awk -F'|' '{gsub(/^[[:space:]]+|[[:space:]]+$/, "", $2); print $2}')
+        _doctor_warn "$task_id marked completed but no commit hash"
+        missing_commit=$((missing_commit + 1))
+      fi
+    done < <(grep -E '^\|[[:space:]]+[A-Z0-9]' "$roadmap" 2>/dev/null || true)
+    if [ "$completed" -eq 0 ]; then
+      _doctor_ok "no completed tasks yet"
+    elif [ "$missing_commit" -eq 0 ]; then
+      _doctor_ok "$completed completed task(s), all with commit hashes"
+    fi
+  else
+    _doctor_fail "roadmap.md missing (nothing to check)"
+  fi
+  echo ""
+
+  # 4. Orphan specs: a spec file under specs/ should correspond to a
+  # task-id in roadmap.md. Test-plans (suffix -test-plan) are paired
+  # files, don't count them as separate specs.
+  echo "Specs ↔ roadmap:"
+  local orphan_spec=0 checked_spec=0
+  if [ -d ".conductor/docs/specs" ] && [ -f "$roadmap" ]; then
+    local spec spec_id
+    for spec in .conductor/docs/specs/*.md; do
+      [ -e "$spec" ] || continue
+      spec_id=$(basename -- "$spec" .md)
+      # Strip -test-plan suffix; paired tests reuse the task-id.
+      spec_id=${spec_id%-test-plan}
+      checked_spec=$((checked_spec + 1))
+      if ! grep -qE "\|[[:space:]]+${spec_id}[[:space:]]+\|" "$roadmap"; then
+        _doctor_warn "$spec has no matching task in roadmap.md"
+        orphan_spec=$((orphan_spec + 1))
+      fi
+    done
+  fi
+  if [ "$checked_spec" -eq 0 ]; then
+    _doctor_ok "no specs yet"
+  elif [ "$orphan_spec" -eq 0 ]; then
+    _doctor_ok "$checked_spec spec(s), all linked to roadmap"
+  fi
+  echo ""
+
+  # 5. Signals referencing nothing: each signal's `id` field should
+  # match a roadmap task-id. (Exception: BLOCKED_BY_ signals' type
+  # includes the other task — not currently validated.)
+  echo "Signals ↔ roadmap:"
+  local orphan_sig=0 checked_sig=0
+  if [ -d ".conductor/signals" ] && [ -f "$roadmap" ]; then
+    local sig sig_id
+    for sig in .conductor/signals/*.json; do
+      [ -e "$sig" ] || continue
+      sig_id=$(_json_get_string "$sig" id)
+      [ -z "$sig_id" ] && continue
+      checked_sig=$((checked_sig + 1))
+      if ! grep -qE "\|[[:space:]]+${sig_id}[[:space:]]+\|" "$roadmap"; then
+        _doctor_warn "$sig references task $sig_id not in roadmap"
+        orphan_sig=$((orphan_sig + 1))
+      fi
+    done
+  fi
+  if [ "$checked_sig" -eq 0 ]; then
+    _doctor_ok "no signals to cross-check"
+  elif [ "$orphan_sig" -eq 0 ]; then
+    _doctor_ok "$checked_sig signal(s), all referencing known tasks"
+  fi
+  echo ""
+
+  # Summary + exit code. Warnings alone do NOT exit non-zero — those
+  # are "please look at this eventually" notes. Only structural
+  # failures (missing dirs / files / broken ADR chains) exit 1.
+  if [ "$issues" -eq 0 ] && [ "$warnings" -eq 0 ]; then
+    ok "Project is healthy"
+    return 0
+  fi
+  if [ "$issues" -gt 0 ]; then
+    err "$issues structural issue(s), $warnings warning(s)"
+    exit 1
+  fi
+  warn "$warnings warning(s) (no structural issues)"
+}
+
 cmd_restart() {
   info "Milestone boundary checklist"
   echo ""
@@ -1978,10 +2258,13 @@ cmd_help() {
   echo "  init <name> <scenario>    Initialize a new project"
   echo "  start <role> [task-id]    Launch an agent"
   echo "  status                    Show project state"
+  echo "  resume                    Recap last in-progress task + open signals"
+  echo "  doctor                    Diagnose project health / drift"
   echo "  validate [path]           Check artifacts against SPEC §5.2 schemas"
   echo "  gate <name> [task-id]     Run a Quality Gate (SPEC §4.2)"
   echo "  restart                   Milestone boundary checklist"
   echo "  help                      Show this help"
+  echo "  --quiet, -q               Suppress info/ok/warn output (errors still print)"
   echo ""
 
   echo "Gates:"
@@ -2087,6 +2370,8 @@ if [ "${BASH_SOURCE[0]:-$0}" = "$0" ]; then
     init)     shift; cmd_init "$@" ;;
     start)    shift; cmd_start "$@" ;;
     status)   cmd_status ;;
+    resume)   cmd_resume ;;
+    doctor)   cmd_doctor ;;
     restart)  cmd_restart ;;
     validate) shift; cmd_validate "${1:-}" ;;
     gate)     shift; cmd_gate "$@" ;;

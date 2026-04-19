@@ -6,7 +6,35 @@ and the project adheres to Semantic Versioning.
 
 ## [Unreleased]
 
-_No unreleased changes._
+### Added
+- `conductor.sh resume` — one-screen recap for "I walked away, where
+  was I?". Shows the last in-progress task (id / title / owner), open
+  structured signals grouped by dispatch target (→ architect / planner
+  / sentinel), and the suggested next command. Priority order:
+  unresolved signals first (those block in-progress work), then resume
+  the in-progress task, then fallback to `status`. No state change —
+  pure read.
+- `conductor.sh doctor` — project health / drift check. Verifies:
+  required structure (dirs + files) · ADR chain integrity (Superseded
+  references point at ADRs that actually exist) · completed roadmap
+  tasks have a commit hash · no orphan specs (specs/*.md without a
+  matching task in roadmap.md) · no orphan signals (signals/*.json
+  whose `id` isn't in roadmap.md). Exit code: 0 for clean or
+  warnings-only, 1 for structural issues. Advisory for warnings,
+  strict for structure — the split matches `restart`'s philosophy.
+- `--quiet` / `-q` global flag: suppresses `info` / `ok` / `warn`
+  output; errors still print to stderr. Flag is stripped from the arg
+  list before command dispatch, so it composes with any subcommand
+  (`conductor.sh --quiet gate all`). Also honored via `CONDUCTOR_QUIET=1`
+  env var for CI contexts.
+
+### Changed
+- Color codes now auto-disable when stdout isn't a TTY (`[ -t 1 ]`
+  check in the output helpers). Previously CI logs captured raw ANSI
+  escapes. `echo -e` replaced with `printf` throughout `info` / `ok` /
+  `warn` / `err` for cross-shell portability.
+- Error messages: "Not an Conductor project" → "Not a Conductor project"
+  (grammar fix caught during test refactor).
 
 ## [2.0.0] — 2026-04-19 — Renamed to Conductor
 

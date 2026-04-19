@@ -1289,6 +1289,109 @@ assert_zero "  sub-project has conductor-builder.md" \
     "[ -f '$TMPDIR/sa-detached/sub-a/.claude/agents/conductor-builder.md' ]"
 
 echo ""
+echo "== T28: --quiet flag suppresses info/ok/warn but not errors =="
+bash "$CONDUCTOR" init "$TMPDIR/quiet" new-product >/dev/null
+assert_match "help without --quiet shows banner" \
+    "bash '$CONDUCTOR' help" "Commands:"
+assert_zero "init --quiet succeeds"  "bash '$CONDUCTOR' --quiet init '$TMPDIR/quiet-init' new-product"
+assert_zero "  --quiet init produced files" "[ -f '$TMPDIR/quiet-init/conductor.sh' ]"
+assert_nonzero "status --quiet outside project fails" \
+    "cd '$TMPDIR/bare' && bash '$CONDUCTOR' --quiet status"
+err_out=$(cd "$TMPDIR/bare" && bash "$CONDUCTOR" --quiet status 2>&1 || true)
+echo "$err_out" | grep -qE "Not a Conductor project" \
+    && pass "  --quiet still prints errors on stderr" \
+    || fail "  --quiet still prints errors on stderr" "(suppressed wrongly)"
+
+echo ""
+echo "== T29: resume command =="
+mkdir -p "$TMPDIR/no-proj"
+assert_nonzero "resume outside project fails" \
+    "cd '$TMPDIR/no-proj' && bash '$CONDUCTOR' resume"
+
+bash "$CONDUCTOR" init "$TMPDIR/resume-clean" new-product >/dev/null
+clean_out=$(cd "$TMPDIR/resume-clean" && bash conductor.sh resume 2>&1)
+echo "$clean_out" | grep -qE "No in-progress tasks found" \
+    && pass "resume reports no in-progress on clean project" \
+    || fail "resume reports no in-progress on clean project" "(missing)"
+echo "$clean_out" | grep -qE "Suggested next" \
+    && pass "resume always prints Suggested next section" \
+    || fail "resume always prints Suggested next section" "(missing)"
+
+bash "$CONDUCTOR" init "$TMPDIR/resume-work" new-product >/dev/null
+sed -i '' 's/| M0-001 | Project scaffold | todo | builder/| M0-001 | Project scaffold | in-progress | builder/' \
+    "$TMPDIR/resume-work/.conductor/docs/roadmap.md"
+cat > "$TMPDIR/resume-work/.conductor/signals/M0-001-NEEDS_ARCH_REVIEW.json" << 'SIG'
+{"id":"M0-001","type":"NEEDS_ARCH_REVIEW","raised_by":"builder","raised_at":"2026-04-19T10:00:00Z","description":"x","resolved":false}
+SIG
+work_out=$(cd "$TMPDIR/resume-work" && bash conductor.sh resume 2>&1)
+echo "$work_out" | grep -qE "Last in-progress task" \
+    && pass "resume shows last in-progress task" \
+    || fail "resume shows last in-progress task" "(missing)"
+echo "$work_out" | grep -qE "ID:.*M0-001" \
+    && pass "resume extracts task-id correctly" \
+    || fail "resume extracts task-id correctly" "(missing)"
+echo "$work_out" | grep -qE "start architect.*resolve arch" \
+    && pass "resume suggests architect for open arch signal" \
+    || fail "resume suggests architect for open arch signal" "(missing)"
+
+echo ""
+echo "== T30: doctor command =="
+assert_nonzero "doctor outside project fails" \
+    "cd '$TMPDIR/no-proj' && bash '$CONDUCTOR' doctor"
+bash "$CONDUCTOR" init "$TMPDIR/doctor-clean" new-product >/dev/null
+assert_zero "doctor passes on clean project" \
+    "cd '$TMPDIR/doctor-clean' && bash conductor.sh doctor"
+assert_match "doctor says Project is healthy when clean" \
+    "cd '$TMPDIR/doctor-clean' && bash conductor.sh doctor" \
+    "Project is healthy"
+
+bash "$CONDUCTOR" init "$TMPDIR/doctor-warn" new-product >/dev/null
+sed -i '' 's/| M0-001 | Project scaffold | todo | builder/| M0-001 | Project scaffold | completed | builder/' \
+    "$TMPDIR/doctor-warn/.conductor/docs/roadmap.md"
+warn_out=$(cd "$TMPDIR/doctor-warn" && bash conductor.sh doctor 2>&1)
+echo "$warn_out" | grep -qE "M0-001 marked completed but no commit hash" \
+    && pass "doctor flags completed task without commit hash" \
+    || fail "doctor flags completed task without commit hash" "(missing)"
+assert_zero "doctor exits 0 on warnings-only" \
+    "cd '$TMPDIR/doctor-warn' && bash conductor.sh doctor"
+
+echo "# random" > "$TMPDIR/doctor-warn/.conductor/docs/specs/M0-ORPHAN.md"
+orphan_out=$(cd "$TMPDIR/doctor-warn" && bash conductor.sh doctor 2>&1)
+echo "$orphan_out" | grep -qE "M0-ORPHAN.*no matching task" \
+    && pass "doctor flags orphan spec" \
+    || fail "doctor flags orphan spec" "(missing)"
+
+bash "$CONDUCTOR" init "$TMPDIR/doctor-fail" new-product >/dev/null
+cat > "$TMPDIR/doctor-fail/.conductor/docs/adr/ADR-0001.md" << 'ADR'
+# ADR-0001: Test
+## Status
+Superseded by ADR-9999
+## Context
+x
+## Decision
+y
+## Consequences
+## Alternatives Considered
+z
+ADR
+assert_nonzero "doctor fails on broken ADR chain" \
+    "cd '$TMPDIR/doctor-fail' && bash conductor.sh doctor"
+assert_match "doctor output names the missing ADR" \
+    "cd '$TMPDIR/doctor-fail' && bash conductor.sh doctor" \
+    "references ADR-9999 but it doesn't exist"
+
+bash "$CONDUCTOR" init "$TMPDIR/doctor-missing" new-product >/dev/null
+rm "$TMPDIR/doctor-missing/.conductor/docs/ci-status.md"
+assert_nonzero "doctor fails when required file missing" \
+    "cd '$TMPDIR/doctor-missing' && bash conductor.sh doctor"
+
+echo ""
+echo "== T31: help lists new commands =="
+assert_match "help lists resume" "bash '$CONDUCTOR' help" "^  resume"
+assert_match "help lists doctor" "bash '$CONDUCTOR' help" "^  doctor"
+assert_match "help lists --quiet" "bash '$CONDUCTOR' help" "^  --quiet"
+
+echo ""
 echo "== T27: detached project can init a sub-project using .conductor/scenarios =="
 # When conductor.sh is copied into a project, that project becomes a valid
 # "install": the copy must be able to init another sub-project without
