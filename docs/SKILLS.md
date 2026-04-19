@@ -1,10 +1,10 @@
 # Claude Code Skills
 
-> Expero ships as a Claude Code plugin. Install once, get 8 role skills
+> Conductor ships as a Claude Code plugin. Install once, get 8 role skills
 > that activate automatically when relevant.
 
 For Codex / Gemini / Aider users: Skills are **Claude-Code-specific**.
-You can continue using `bash expero.sh start <role> <task> <tool>` — the
+You can continue using `bash conductor.sh start <role> <task> <tool>` — the
 role prompts are identical (both forms render from `roles/*.md`). This
 document only applies if you're using Claude Code.
 
@@ -12,18 +12,18 @@ document only applies if you're using Claude Code.
 
 ## What you get
 
-Eight skills under the `expero-` namespace:
+Eight skills under the `conductor-` namespace:
 
 | Skill | Triggers on |
 |-------|-------------|
-| `expero-architect` | Writing ADRs, tech choices, dependency evaluation |
-| `expero-planner` | Maintaining roadmap, sequencing milestones |
-| `expero-builder` | Implementing a specific task from an Expero roadmap |
-| `expero-verifier` | Writing test plans, CI status maintenance |
-| `expero-critic` | Reviewing code against ADRs for a specific task |
-| `expero-sentinel` | Security audit (vulnerabilities, CVSS) |
-| `expero-scribe` | Public docs (API reference, quickstart, CHANGELOG) |
-| `expero-archaeologist` | Legacy code analysis, reverse ADRs |
+| `conductor-architect` | Writing ADRs, tech choices, dependency evaluation |
+| `conductor-planner` | Maintaining roadmap, sequencing milestones |
+| `conductor-builder` | Implementing a specific task from a Conductor roadmap |
+| `conductor-verifier` | Writing test plans, CI status maintenance |
+| `conductor-critic` | Reviewing code against ADRs for a specific task |
+| `conductor-sentinel` | Security audit (vulnerabilities, CVSS) |
+| `conductor-scribe` | Public docs (API reference, quickstart, CHANGELOG) |
+| `conductor-archaeologist` | Legacy code analysis, reverse ADRs |
 
 Each skill loads when Claude Code's description matcher picks it based
 on the user's request, the file paths open in context, and the
@@ -35,13 +35,13 @@ conversation so far.
 
 ```bash
 # 1. Clone this repo (or add it as a submodule to your workspace)
-git clone https://github.com/withesse/expero-agents ~/.claude/plugins/expero
+git clone https://github.com/withesse/conductor ~/.claude/plugins/conductor
 
 # 2. Add the plugin to Claude Code settings.json
 #    (~/.claude/settings.json or project-level .claude/settings.json)
 {
   "plugins": [
-    "~/.claude/plugins/expero"
+    "~/.claude/plugins/conductor"
   ]
 }
 ```
@@ -50,33 +50,33 @@ Restart Claude Code; verify skills appear:
 
 ```
 /skills
-# Should list expero-architect, expero-planner, …
+# Should list conductor-architect, conductor-planner, …
 ```
 
 ---
 
 ## How skills complement the CLI
 
-The Expero repo ships **both** a CLI and a Skills plugin. They do not
+The Conductor repo ships **both** a CLI and a Skills plugin. They do not
 overlap — choose based on what Claude Code runtime gives you:
 
 | You want to… | Use |
 |---|---|
-| Scaffold a new project | `bash expero.sh init my-app <scenario>` |
-| Launch a fresh session as a role (any tool) | `bash expero.sh start <role> [task]` |
+| Scaffold a new project | `bash conductor.sh init my-app <scenario>` |
+| Launch a fresh session as a role (any tool) | `bash conductor.sh start <role> [task]` |
 | Have Claude Code auto-activate the right role mid-conversation | Skills |
-| Get project state at a glance | `bash expero.sh status` |
-| Validate artifacts / run a Quality Gate | `bash expero.sh validate` / `bash expero.sh gate` |
+| Get project state at a glance | `bash conductor.sh status` |
+| Validate artifacts / run a Quality Gate | `bash conductor.sh validate` / `bash conductor.sh gate` |
 
 **Typical Claude Code workflow**:
 
 ```
-$ bash expero.sh init my-app new-product         # CLI: scaffold
+$ bash conductor.sh init my-app new-product         # CLI: scaffold
 $ cd my-app && claude                             # enter Claude Code
 # inside Claude Code:
 You: "We need to decide between Postgres and MySQL for user data."
-Claude: [expero-architect skill activates]
-        "I'm acting as Architect. Let me first check .expero/docs/adr/
+Claude: [conductor-architect skill activates]
+        "I'm acting as Architect. Let me first check .conductor/docs/adr/
          for any existing database decisions…"
 ```
 
@@ -102,11 +102,11 @@ vim roles/architect.md
 bash scripts/regen-skills.sh
 
 # 3. Commit both
-git add roles/architect.md .claude-plugin/skills/expero-architect/
+git add roles/architect.md .claude-plugin/skills/conductor-architect/
 git commit
 ```
 
-`test-expero.sh` fails if skills drift from roles — same discipline as
+`test-conductor.sh` fails if skills drift from roles — same discipline as
 the byte-level regression for scenarios.
 
 ---
@@ -119,7 +119,7 @@ Follow [EXTENDING.md](./EXTENDING.md)'s Recipe 1, then:
    `_skill_description()` function — Claude Code uses this to decide
    when to activate your skill.
 2. Run `bash scripts/regen-skills.sh` — emits
-   `.claude-plugin/skills/expero-<your-role>/SKILL.md` automatically.
+   `.claude-plugin/skills/conductor-<your-role>/SKILL.md` automatically.
 3. Commit the new SKILL.md alongside the role.md.
 
 The regen script auto-picks up any `roles/*.md` that isn't `_base.md`.

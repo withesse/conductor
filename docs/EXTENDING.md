@@ -1,10 +1,10 @@
-# Extending Expero
+# Extending Conductor
 
 > Three recipes: add a role, add a scenario, add an artifact schema.
 
 Before reading, skim [ARCHITECTURE.md](./ARCHITECTURE.md) for the file
 layout. All extensions below are **data-only** — you don't touch
-`expero.sh`.
+`conductor.sh`.
 
 ---
 
@@ -33,14 +33,14 @@ for community docs, `performance-engineer` for profiling work).
    本次任务：__TASK__
 
    你的产出：
-   - .expero/docs/community/<topic>.md
+   - .conductor/docs/community/<topic>.md
 
    规则：
    - 不修改代码
    - 技术内容不确定时标注 [需 Architect 确认]
    ```
 
-2. **Declare the model tier** in `expero.sh`'s `tier_for_role()`. Choose
+2. **Declare the model tier** in `conductor.sh`'s `tier_for_role()`. Choose
    one of `reasoning` / `execution` / `template`:
 
    ```bash
@@ -83,7 +83,7 @@ for community docs, `performance-engineer` for profiling work).
 5. **Update `AGENTS.md`'s Role Quick Reference table** (the one copied
    by `_gen_agents_md`). Add a row with Owns / Reads / Never.
 
-6. **Add a regression assertion** in `test-expero.sh`:
+6. **Add a regression assertion** in `test-conductor.sh`:
 
    ```bash
    # Under T19
@@ -94,7 +94,7 @@ for community docs, `performance-engineer` for profiling work).
    check devrel gemini "gemini-3-flash"
    ```
 
-7. Run `bash test-expero.sh` — expect all assertions (including your new
+7. Run `bash test-conductor.sh` — expect all assertions (including your new
    ones) to pass.
 
 ### Why these five steps (and not fewer)
@@ -124,7 +124,7 @@ scenarios (e.g. `data-pipeline`, `plugin-ecosystem`, `compliance-audit`).
      "description": "Batch/stream data pipeline build",
      "active_roles": ["planner", "architect", "builder", "verifier", "critic"],
      "extension_roles": [],
-     "extra_dirs": [".expero/docs/schemas", ".expero/docs/dataflows"],
+     "extra_dirs": [".conductor/docs/schemas", ".conductor/docs/dataflows"],
      "roadmap_template": "roadmaps/data-pipeline.md"
    }
    ```
@@ -134,9 +134,9 @@ scenarios (e.g. `data-pipeline`, `plugin-ecosystem`, `compliance-audit`).
    - `extension_roles` — additions to `config.yaml`'s `roles.extensions:`
      block, beyond the universal five
    - `extra_dirs` — scenario-specific subdirectories created under
-     `.expero/` at init time (full path, not just basename)
+     `.conductor/` at init time (full path, not just basename)
    - `roadmap_template` — relative path under `scenarios/` pointing to
-     the roadmap markdown to copy into `.expero/docs/roadmap.md`
+     the roadmap markdown to copy into `.conductor/docs/roadmap.md`
 
 2. **Write the roadmap template** at `scenarios/roadmaps/<name>.md`:
 
@@ -165,7 +165,7 @@ scenarios (e.g. `data-pipeline`, `plugin-ecosystem`, `compliance-audit`).
    `roadmap_template` at that scenario's file — `greenfield-library.json`
    does this with `"roadmap_template": "roadmaps/new-product.md"`.
 
-3. **Add regression assertions** in `test-expero.sh`:
+3. **Add regression assertions** in `test-conductor.sh`:
 
    ```bash
    # Extend the SCENARIOS variable
@@ -176,12 +176,12 @@ scenarios (e.g. `data-pipeline`, `plugin-ecosystem`, `compliance-audit`).
    listed in `$SCENARIOS`, including byte-level regression against the
    template you just authored.
 
-4. Run `bash test-expero.sh` — expect all assertions to pass.
+4. Run `bash test-conductor.sh` — expect all assertions to pass.
 
 ### What you don't need to do
 
 No `case` statement to extend. No `_gen_roadmap` branch to add. No
-`_gen_expero_config` / `_gen_claude_md` editing. The data-driven
+`_gen_conductor_config` / `_gen_claude_md` editing. The data-driven
 generators handle everything from the JSON.
 
 ---
@@ -199,7 +199,7 @@ Use when: a role needs to produce a new artifact type whose structure
    {
      "name": "runbook",
      "description": "Operational runbook for a service",
-     "applies_to": ".expero/docs/runbooks/<service>.md",
+     "applies_to": ".conductor/docs/runbooks/<service>.md",
      "required_patterns": [
        "^# Runbook:",
        "^## Service",
@@ -232,14 +232,14 @@ Use when: a role needs to produce a new artifact type whose structure
    }
    ```
 
-4. **Add assertions** in `test-expero.sh` under T26b/c/d:
+4. **Add assertions** in `test-conductor.sh` under T26b/c/d:
 
    ```bash
    # T26b
    assert_zero "  schemas/runbook.json exists" "[ -f '$SCHEMA_DIR/runbook.json' ]"
 
    # Good-case / bad-case validation under T15
-   cat > "$TMPDIR/validate-ok/.expero/docs/runbooks/svc-a.md" << 'RB_EOF'
+   cat > "$TMPDIR/validate-ok/.conductor/docs/runbooks/svc-a.md" << 'RB_EOF'
    # Runbook: svc-a
    ## Service
    ## Dependencies
@@ -247,10 +247,10 @@ Use when: a role needs to produce a new artifact type whose structure
    ## Escalation
    RB_EOF
    assert_zero "validate passes on valid runbook" \
-       "cd '$TMPDIR/validate-ok' && bash expero.sh validate"
+       "cd '$TMPDIR/validate-ok' && bash conductor.sh validate"
    ```
 
-5. Run `bash test-expero.sh`.
+5. Run `bash test-conductor.sh`.
 
 ### Why one bash line is needed
 
@@ -283,16 +283,16 @@ agent flexibility.
 
 ## Promotion path
 
-If your extension would benefit other Expero users, the contribution flow:
+If your extension would benefit other Conductor users, the contribution flow:
 
 1. Open a PR with the new role / scenario / schema JSON and markdown.
-2. Extend `test-expero.sh` with assertions that lock in the new
+2. Extend `test-conductor.sh` with assertions that lock in the new
    artifact's structure.
 3. Update `AGENTS.md`'s Role Quick Reference (for new roles) or SPEC.md's
    §5.2 / §6 (for new schemas / scenarios).
 
 If it's project-specific, just drop the file into your project's
-`.expero/roles/` or `.expero/scenarios/` — `_resource_root()` prefers
+`.conductor/roles/` or `.conductor/scenarios/` — `_resource_root()` prefers
 project-local resources over the shared source repo.
 
 ---

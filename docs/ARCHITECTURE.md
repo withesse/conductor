@@ -1,6 +1,6 @@
 # Architecture
 
-> How Expero Agents is laid out, and why.
+> How Conductor is laid out, and why.
 
 This document describes the **physical layout** of the codebase after v1.2's
 data/code separation. For the conceptual model (roles, artifacts, workflow),
@@ -11,7 +11,7 @@ see [SPEC.md](../SPEC.md). For how to extend the system, see
 
 ## One-line summary
 
-> `expero.sh` is a scaffolding script. `roles/`, `scenarios/`, `schemas/` are
+> `conductor.sh` is a scaffolding script. `roles/`, `scenarios/`, `schemas/` are
 > data. Every generated project carries its own copy of the data so it can
 > operate independently of the source repo.
 
@@ -20,9 +20,9 @@ see [SPEC.md](../SPEC.md). For how to extend the system, see
 ## Source repo layout
 
 ```
-expero-agents/
-├── expero.sh                   # CLI + generators + dispatch
-├── test-expero.sh              # 370-assertion regression suite
+conductor/
+├── conductor.sh                   # CLI + generators + dispatch
+├── test-conductor.sh              # 370-assertion regression suite
 │
 ├── roles/                      # Role prompts (data)
 │   ├── _base.md                # Shared preamble for all roles
@@ -85,17 +85,17 @@ expero-agents/
 
 ## Generated project layout
 
-After `bash expero.sh init my-app new-product`:
+After `bash conductor.sh init my-app new-product`:
 
 ```
 my-app/
-├── expero.sh                   # Copy of the source script
+├── conductor.sh                   # Copy of the source script
 ├── CLAUDE.md                   # Harness config (auto-loaded by Claude Code)
 ├── AGENTS.md                   # Same, for non-Claude tools
 ├── CHANGELOG.md                # Scribe-owned (SPEC §5.3)
 ├── .gitignore
 │
-├── .expero/
+├── .conductor/
 │   ├── config.yaml             # version, scenario, model tiers
 │   │
 │   ├── docs/                   # Where agents write Artifacts
@@ -119,23 +119,23 @@ my-app/
 │   └── schemas/                # Copy of source schemas/
 ```
 
-The presence of `.expero/roles/`, `.expero/scenarios/`, `.expero/schemas/`
+The presence of `.conductor/roles/`, `.conductor/scenarios/`, `.conductor/schemas/`
 inside a project makes that project a **valid install** — you can run
-`bash expero.sh init sub-project new-product` from inside it without the
+`bash conductor.sh init sub-project new-product` from inside it without the
 original source repo being reachable.
 
 ---
 
 ## Resource resolution (`_resource_root`)
 
-`expero.sh` looks up `roles/` / `scenarios/` / `schemas/` via a three-level
+`conductor.sh` looks up `roles/` / `scenarios/` / `schemas/` via a three-level
 lookup, in order:
 
 ```
-1. Current working directory has .expero/roles/    → use .expero/
+1. Current working directory has .conductor/roles/    → use .conductor/
    (agent running `start`, `status`, `validate` from inside a project)
 
-2. Script's sibling has .expero/roles/             → use $script_dir/.expero/
+2. Script's sibling has .conductor/roles/             → use $script_dir/.conductor/
    (sub-init launched from inside a detached project — project copied
     somewhere without its source repo)
 
@@ -143,9 +143,9 @@ lookup, in order:
    (running from a clone of the source repo)
 ```
 
-If none match, `expero.sh` refuses to start. This resolver is the reason a
+If none match, `conductor.sh` refuses to start. This resolver is the reason a
 generated project works the same whether invoked from its own directory, from
-above it, or from anywhere (as long as `EXPERO_SCRIPT_PATH` is correctly
+above it, or from anywhere (as long as `CONDUCTOR_SCRIPT_PATH` is correctly
 resolved at load time — which happens before any `cd`).
 
 ---
@@ -159,17 +159,17 @@ filesystem as the target, so `mv` is guaranteed atomic) and commits via
 ```
 init my-app new-product
   │
-  ├─ mktemp -d /parent/.expero-init.XXXXXX  ← staging
-  ├─ mkdir -p staging/.expero/{docs/*, signals, …}
+  ├─ mktemp -d /parent/.conductor-init.XXXXXX  ← staging
+  ├─ mkdir -p staging/.conductor/{docs/*, signals, …}
   ├─ cd staging
-  ├─ _gen_expero_config                     ← reads scenarios/*.json
+  ├─ _gen_conductor_config                     ← reads scenarios/*.json
   ├─ _gen_claude_md
   ├─ _gen_agents_md
   ├─ _gen_roadmap                           ← cp scenarios/roadmaps/*.md
   ├─ _gen_ci_status
   ├─ _gen_changelog
   ├─ _gen_signals_readme
-  ├─ _gen_scripts                           ← copies expero.sh + roles/
+  ├─ _gen_scripts                           ← copies conductor.sh + roles/
   │                                           + scenarios/ + schemas/
   ├─ _gen_gitignore
   ├─ cd parent
@@ -198,7 +198,7 @@ Role prompts use two placeholders that `_build_prompt` substitutes at
 本次任务：__TASK__
 
 读取必需：
-- .expero/docs/specs/__TASK_ID__.md（如存在）
+- .conductor/docs/specs/__TASK_ID__.md（如存在）
 ```
 
 Rendered with `start builder M0-001`:
@@ -207,7 +207,7 @@ Rendered with `start builder M0-001`:
 本次任务：M0-001
 
 读取必需：
-- .expero/docs/specs/M0-001.md（如存在）
+- .conductor/docs/specs/M0-001.md（如存在）
 ```
 
 Rendered with `start builder` (no task-id):
@@ -216,7 +216,7 @@ Rendered with `start builder` (no task-id):
 本次任务：实现 roadmap 中第一个状态为 todo 的任务
 
 读取必需：
-- .expero/docs/specs/<task-id>.md（如存在）
+- .conductor/docs/specs/<task-id>.md（如存在）
 ```
 
 **Critic is the exception** — task-id is required, and `_build_prompt`
@@ -226,7 +226,7 @@ errors out if missing.
 
 ## Custom JSON parser
 
-`expero.sh` includes a minimal awk-based JSON reader (no `jq` dependency):
+`conductor.sh` includes a minimal awk-based JSON reader (no `jq` dependency):
 
 - `_json_get_string FILE KEY` — extract `"key": "value"`
 - `_json_get_bool FILE KEY` — extract `"key": true|false`
@@ -242,7 +242,7 @@ multi-line path reads one quoted string per line and is immune.
 
 ## Test layout
 
-`test-expero.sh` contains 370 assertions across 29 groups:
+`test-conductor.sh` contains 370 assertions across 29 groups:
 
 - **T1–T9** — original v1.0 coverage (help, init, scenarios, status, start)
 - **T10–T18** — v1.2 basics (changelog, signals, init atomicity, validate)
@@ -253,11 +253,11 @@ multi-line path reads one quoted string per line and is immune.
 - **T26b–T26d** — schema extraction regression (PR3) — includes parser
   regression for `[0-9]` / `[.]` / `[|]` in ERE patterns
 
-Run: `bash test-expero.sh`. All assertions must pass before any commit.
+Run: `bash test-conductor.sh`. All assertions must pass before any commit.
 
 ---
 
-## What's deliberately not in `expero.sh`
+## What's deliberately not in `conductor.sh`
 
 - **Role dispatch logic** — each `start` invocation is a plain shell
   `exec`, no orchestration. See [SPEC §4](../SPEC.md) for why.

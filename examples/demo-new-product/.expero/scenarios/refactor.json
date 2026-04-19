@@ -1,8 +1,0 @@
-{
-  "name": "refactor",
-  "description": "Refactor an existing codebase",
-  "active_roles": ["planner", "architect", "builder", "verifier", "critic"],
-  "extension_roles": [],
-  "extra_dirs": [".expero/docs/refactor"],
-  "roadmap_template": "roadmaps/refactor.md"
-}

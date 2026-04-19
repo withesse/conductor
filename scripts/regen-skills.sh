@@ -1,11 +1,11 @@
 #!/bin/bash
-# regen-skills.sh — regenerate .claude-plugin/skills/expero-<role>/SKILL.md
+# regen-skills.sh — regenerate .claude-plugin/skills/conductor-<role>/SKILL.md
 # from roles/<role>.md + roles/_base.md.
 #
 # Role prompts live in roles/*.md — that's the single source of truth.
 # Claude Code Skills are a *rendered view* of those prompts with frontmatter
 # the Claude Code runtime needs (name, description). Run this script
-# whenever roles/ changes; test-expero.sh verifies skills stay in sync.
+# whenever roles/ changes; test-conductor.sh verifies skills stay in sync.
 #
 # Usage:
 #   bash scripts/regen-skills.sh            # regenerate into .claude-plugin/
@@ -23,13 +23,13 @@ if [ ! -d "$ROLES_DIR" ]; then
 fi
 
 # Skill description for Claude Code's matcher — read from roles/_meta.json
-# (field "long"). Same source as `_description_for_role` in expero.sh
+# (field "long"). Same source as `_description_for_role` in conductor.sh
 # (field "short"), so edits propagate to both CLI help and Claude Code
 # skill matcher without duplicate maintenance.
 _meta_get() {
   local role=$1
   local field=$2
-  # Inline awk (avoid sourcing expero.sh which has side effects); match
+  # Inline awk (avoid sourcing conductor.sh which has side effects); match
   # the same "role/field": "value" key format as _json_get_string.
   local meta="$REPO_ROOT/roles/_meta.json"
   [ -f "$meta" ] || return
@@ -50,22 +50,22 @@ _meta_get() {
 _skill_description() {
   local desc
   desc=$(_meta_get "$1" long)
-  echo "${desc:-Use when acting as the Expero Agents '$1' role.}"
+  echo "${desc:-Use when acting as the Conductor '$1' role.}"
 }
 
 # Uppercase-first (portable across bash 3.2 and bash 4+). Duplicated
-# from expero.sh's _title_case to keep this script self-contained.
+# from conductor.sh's _title_case to keep this script self-contained.
 _title_case() {
   awk '{print toupper(substr($0,1,1)) substr($0,2)}' <<< "$1"
 }
 
 # Per-role default task description (in Chinese, matches role prompt).
 # Skills are loaded without a task-id, so we substitute the per-role
-# default — the same text expero.sh uses when `start <role>` runs with
+# default — the same text conductor.sh uses when `start <role>` runs with
 # no second argument. Keeps behavior consistent across start and skills.
 _default_task() {
   case "$1" in
-    architect)     echo "检查 .expero/docs/roadmap.md 中所有 NEEDS_ARCH_REVIEW 标记并处理" ;;
+    architect)     echo "检查 .conductor/docs/roadmap.md 中所有 NEEDS_ARCH_REVIEW 标记并处理" ;;
     planner)       echo "检查 roadmap.md，更新里程碑状态，识别 blocked 任务" ;;
     builder)       echo "实现 roadmap 中第一个状态为 todo 的任务" ;;
     verifier)      echo "为所有 completed 任务检查测试计划，补充缺失的" ;;
@@ -95,7 +95,7 @@ _render_skill() {
   # (which is how Skills get triggered — no CLI-level task argument).
   {
     printf -- '---\n'
-    printf 'name: expero-%s\n' "$role"
+    printf 'name: conductor-%s\n' "$role"
     printf 'description: %s\n' "$desc"
     printf -- '---\n\n'
     # Base preamble with role title substituted
@@ -112,7 +112,7 @@ _render_skill() {
 for role_md in "$ROLES_DIR"/*.md; do
   role=$(basename -- "$role_md" .md)
   [ "$role" = "_base" ] && continue
-  out="$OUT_DIR/skills/expero-$role/SKILL.md"
+  out="$OUT_DIR/skills/conductor-$role/SKILL.md"
   _render_skill "$role" "$out"
   echo "  wrote $out"
 done
@@ -123,10 +123,10 @@ done
 mkdir -p "$OUT_DIR"
 cat > "$OUT_DIR/plugin.json" << 'EOF'
 {
-  "name": "expero",
-  "version": "1.1.0",
-  "description": "Expero Agents — 8 role skills for large-project AI collaboration (planner, architect, builder, verifier, critic, sentinel, scribe, archaeologist). Loads when working inside a project with .expero/docs/.",
-  "homepage": "https://github.com/withesse/expero-agents"
+  "name": "conductor",
+  "version": "2.0.0",
+  "description": "Conductor — 8 role skills for large-project AI collaboration (planner, architect, builder, verifier, critic, sentinel, scribe, archaeologist). Loads when working inside a project with .conductor/docs/.",
+  "homepage": "https://github.com/withesse/conductor"
 }
 EOF
 echo "  wrote $OUT_DIR/plugin.json"

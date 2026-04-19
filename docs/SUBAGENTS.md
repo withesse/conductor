@@ -1,7 +1,7 @@
 # Claude Code Subagents
 
-> Expero ships 8 Claude Code subagent definitions. The main agent can
-> `Task(expero-<role>, prompt="...")` to dispatch any role in a
+> Conductor ships 8 Claude Code subagent definitions. The main agent can
+> `Task(conductor-<role>, prompt="...")` to dispatch any role in a
 > separate context window.
 
 This is the **Phase 1** of the v2.0.4 subagent plan (see
@@ -10,7 +10,7 @@ This is the **Phase 1** of the v2.0.4 subagent plan (see
 automatically — is a separate effort.
 
 Codex / Gemini / Aider users: subagents are **Claude-Code-specific**.
-Your `bash expero.sh start <role>` workflow is unchanged.
+Your `bash conductor.sh start <role>` workflow is unchanged.
 
 ---
 
@@ -21,7 +21,7 @@ delegate role work to a subagent:
 
 ```
 You: "Architect, what should we use for auth?"
-Main agent: [invokes Task(expero-architect, "evaluate auth options")]
+Main agent: [invokes Task(conductor-architect, "evaluate auth options")]
            → Architect subagent spins up in its own context,
              reads existing ADRs, writes a new one, returns summary.
 Main agent: "Architect proposed ADR-0003 (Clerk over Auth0).
@@ -40,8 +40,8 @@ Parallelism works too:
 
 ```
 You: "Review and test M0-001 in parallel."
-Main agent: [Task(expero-critic, "review M0-001")]
-           [Task(expero-verifier, "test plan for M0-001")]
+Main agent: [Task(conductor-critic, "review M0-001")]
+           [Task(conductor-verifier, "test plan for M0-001")]
             ← both run concurrently, each in its own context
 ```
 
@@ -49,7 +49,7 @@ Main agent: [Task(expero-critic, "review M0-001")]
 
 ## The three-layer mental model
 
-Expero now renders each role in **three shapes**, all from `roles/*.md`:
+Conductor now renders each role in **three shapes**, all from `roles/*.md`:
 
 | Layer | When to use | Tool-agnostic? |
 |---|---|---|
@@ -72,28 +72,28 @@ These compose: a project can use all three without conflict.
 
 ## Install / activation
 
-Subagents are installed **per-project** at `.claude/agents/expero-*.md`.
+Subagents are installed **per-project** at `.claude/agents/conductor-*.md`.
 They're auto-discovered by Claude Code when launched from the project
 directory — no settings change needed.
 
-`bash expero.sh init <project> <scenario>` copies 8 files:
+`bash conductor.sh init <project> <scenario>` copies 8 files:
 
 ```
-<project>/.claude/agents/expero-architect.md
-<project>/.claude/agents/expero-planner.md
-<project>/.claude/agents/expero-builder.md
-<project>/.claude/agents/expero-verifier.md
-<project>/.claude/agents/expero-critic.md
-<project>/.claude/agents/expero-sentinel.md
-<project>/.claude/agents/expero-scribe.md
-<project>/.claude/agents/expero-archaeologist.md
+<project>/.claude/agents/conductor-architect.md
+<project>/.claude/agents/conductor-planner.md
+<project>/.claude/agents/conductor-builder.md
+<project>/.claude/agents/conductor-verifier.md
+<project>/.claude/agents/conductor-critic.md
+<project>/.claude/agents/conductor-sentinel.md
+<project>/.claude/agents/conductor-scribe.md
+<project>/.claude/agents/conductor-archaeologist.md
 ```
 
 Each has frontmatter:
 
 ```yaml
 ---
-name: expero-architect
+name: conductor-architect
 description: Use when writing Architecture Decision Records…
 model: claude-opus-4-7
 tools: Read, Write, Edit, Grep, Glob
@@ -129,7 +129,7 @@ split is by whether the role produces *code changes* (doers) vs
 ## Single source of truth (again)
 
 Subagents are rendered from `roles/*.md` + `roles/_meta.json`. Never
-edit `.claude/agents/expero-*.md` directly — your change will be
+edit `.claude/agents/conductor-*.md` directly — your change will be
 overwritten on the next regen.
 
 To change a role:
@@ -143,12 +143,12 @@ bash scripts/regen-subagents.sh
 bash scripts/regen-skills.sh
 
 # 3. Commit all of it
-git add roles/architect.md .claude/agents/expero-architect.md \
-        .claude-plugin/skills/expero-architect/SKILL.md
+git add roles/architect.md .claude/agents/conductor-architect.md \
+        .claude-plugin/skills/conductor-architect/SKILL.md
 git commit
 ```
 
-`test-expero.sh` fails if any of the three renderings drift from
+`test-conductor.sh` fails if any of the three renderings drift from
 `roles/*.md` — byte-level regression across CLI / Skills / Subagents.
 
 ---
@@ -163,7 +163,7 @@ Follow [EXTENDING.md](./EXTENDING.md) Recipe 1, then:
      decide scribe (no Bash) vs doer (with Bash).
 
 2. Run `bash scripts/regen-subagents.sh` — generates
-   `.claude/agents/expero-<your-role>.md`.
+   `.claude/agents/conductor-<your-role>.md`.
 
 3. Commit the new subagent md alongside the role.md + its
    description in `_meta.json`.
@@ -176,25 +176,25 @@ default). CLI help, Skills, and Subagents all pick it up automatically.
 
 ## Phase 2 — orchestrator (shipped in Unreleased)
 
-`.claude/agents/expero-orchestrator.md` coordinates role dispatches
+`.claude/agents/conductor-orchestrator.md` coordinates role dispatches
 end-to-end. Use it when you want to ship a task in one turn instead of
 dispatching roles yourself:
 
 ```
 You: "Ship M0-001 end-to-end."
-Orchestrator: [Task(expero-planner, ...) → spec verified]
-             [Task(expero-verifier, ...) → test plan written]
-             [Task(expero-builder, ...) → code + tests written]
-             [Task(expero-critic, ...) → APPROVED]
-             [bash expero.sh gate all M0-001 → all 5 gates PASS]
+Orchestrator: [Task(conductor-planner, ...) → spec verified]
+             [Task(conductor-verifier, ...) → test plan written]
+             [Task(conductor-builder, ...) → code + tests written]
+             [Task(conductor-critic, ...) → APPROVED]
+             [bash conductor.sh gate all M0-001 → all 5 gates PASS]
              "M0-001 complete. Mark roadmap as completed? (Y/n)"
 ```
 
 ### What it does
 
-1. Reads `.expero/docs/roadmap.md` to find the next task (or honor your
+1. Reads `.conductor/docs/roadmap.md` to find the next task (or honor your
    explicit task-id).
-2. Scans `.expero/signals/*.json` for unresolved signals and dispatches
+2. Scans `.conductor/signals/*.json` for unresolved signals and dispatches
    the right handler role to resolve them first.
 3. Dispatches roles in the correct sequence per scenario:
    - new-product / migration / refactor / multi-service:
@@ -210,7 +210,7 @@ Orchestrator: [Task(expero-planner, ...) → spec verified]
 ### When NOT to use it
 
 - **Single-role questions** ("Architect, what should we use for
-  auth?") — use the role's skill or Task(expero-architect, ...) directly.
+  auth?") — use the role's skill or Task(conductor-architect, ...) directly.
 - **Debugging** — debugging mid-implementation is friction under an
   orchestrator; drop into an individual role session instead.
 - **When the scenario lacks Critic** (e.g., legacy-analysis) — you
@@ -228,10 +228,10 @@ Orchestrator: [Task(expero-planner, ...) → spec verified]
 
 ### Source
 
-`.claude/agents/expero-orchestrator.md` is hand-written (not
+`.claude/agents/conductor-orchestrator.md` is hand-written (not
 regenerated from `roles/`) because the orchestrator's system prompt
 is structurally different from a role's — it describes dispatch
-decisions, not work to do. `test-expero.sh` guards that the
+decisions, not work to do. `test-conductor.sh` guards that the
 orchestrator references every role and the full signal→role mapping,
 so adding a 9th role without updating the orchestrator fails the
 test suite.

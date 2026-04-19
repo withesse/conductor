@@ -1,18 +1,18 @@
-# Expero Agents
+# Conductor
 
 > A role-based AI agent collaboration framework for large-scale software engineering.
 
-[![Version](https://img.shields.io/badge/version-1.1.0-blue)]() [![License](https://img.shields.io/badge/license-CC0-green)]()
+[![Version](https://img.shields.io/badge/version-2.0.0-blue)]() [![License](https://img.shields.io/badge/license-CC0-green)]()
 
 ---
 
-## 什么是 Expero
+## 什么是 Conductor
 
-Expero 是一套用于大型软件工程项目的多 AI agent 协作框架。它不是一个软件，是一套**方法论 + 模板 + CLI 工具**。
+Conductor 是一套用于大型软件工程项目的多 AI agent 协作框架。它不是一个软件，是一套**方法论 + 模板 + CLI 工具**。
 
 核心理念：AI 辅助工程不是"AI 写代码"，而是"**AI 写的代码能被工程化地验证和集成**"。
 
-## 为什么需要 Expero
+## 为什么需要 Conductor
 
 当项目规模超过 10K 行代码时，单个 AI agent 会遇到这些问题：
 
@@ -21,21 +21,21 @@ Expero 是一套用于大型软件工程项目的多 AI agent 协作框架。它
 - 架构决策、代码实现、质量验证需要不同的思维模式
 - 跨会话的一致性难以保证
 
-Expero 通过**多 agent 分工 + 文件系统传递状态 + 结构化文档**解决这些问题。
+Conductor 通过**多 agent 分工 + 文件系统传递状态 + 结构化文档**解决这些问题。
 
 ## 快速开始
 
 ### 安装
 
 ```bash
-curl -O https://raw.githubusercontent.com/withesse/expero-agents/main/expero.sh
-chmod +x expero.sh
+curl -O https://raw.githubusercontent.com/withesse/conductor/main/conductor.sh
+chmod +x conductor.sh
 ```
 
 ### 初始化项目
 
 ```bash
-bash expero.sh init my-app new-product
+bash conductor.sh init my-app new-product
 cd my-app
 ```
 
@@ -43,31 +43,31 @@ cd my-app
 
 ```bash
 # Architect：做架构决策
-bash expero.sh start architect
+bash conductor.sh start architect
 
 # Planner：规划里程碑
-bash expero.sh start planner
+bash conductor.sh start planner
 
 # Builder：实现第一个任务
-bash expero.sh start builder M0-001
+bash conductor.sh start builder M0-001
 
 # Verifier：写测试计划
-bash expero.sh start verifier M0-001
+bash conductor.sh start verifier M0-001
 
 # Critic：代码审查
-bash expero.sh start critic M0-001
+bash conductor.sh start critic M0-001
 ```
 
 ### 查看状态
 
 ```bash
-bash expero.sh status
+bash conductor.sh status
 ```
 
 ### 里程碑边界重启
 
 ```bash
-bash expero.sh restart
+bash conductor.sh restart
 ```
 
 ## 核心概念
@@ -111,7 +111,7 @@ Scenario   →  预设的 Role + Workflow 组合
 
 ## 文件系统协议
 
-Expero 的核心约束：**所有状态通过文件系统传递，不通过上下文窗口**。
+Conductor 的核心约束：**所有状态通过文件系统传递，不通过上下文窗口**。
 
 ```
 project/
@@ -119,7 +119,7 @@ project/
   AGENTS.md                   # 非 Claude 工具的等价配置
   CHANGELOG.md                # [scribe] 项目根目录
 
-  .expero/
+  .conductor/
     config.yaml               # 框架配置
 
     docs/                     # 所有 Artifact
@@ -138,12 +138,12 @@ project/
     scenarios/                # Scenario 定义（同上）
     schemas/                  # Artifact schema 定义（同上）
 
-  docs/                       # （可选）项目原生文档，Expero 不管理
+  docs/                       # （可选）项目原生文档，Conductor 不管理
 ```
 
 **关键设计**：
-- 所有框架文档放在 `.expero/docs/` 下，与项目原生的 `docs/` 完全隔离
-- `.expero/{roles,scenarios,schemas}/` 是 init 时从源仓库复制的**数据副本**，项目因此成为一个完整的 install——可以自己 `init` 子项目而无需源仓库可达
+- 所有框架文档放在 `.conductor/docs/` 下，与项目原生的 `docs/` 完全隔离
+- `.conductor/{roles,scenarios,schemas}/` 是 init 时从源仓库复制的**数据副本**，项目因此成为一个完整的 install——可以自己 `init` 子项目而无需源仓库可达
 - 详见 [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md)
 
 ## 工作流示例
@@ -184,7 +184,7 @@ project/
 
 ## 工具支持
 
-Expero 是工具无关的。支持矩阵：
+Conductor 是工具无关的。支持矩阵：
 
 | Role | Claude Code | OpenAI | Gemini |
 |------|-------------|--------|--------|
@@ -200,14 +200,14 @@ Expero 是工具无关的。支持矩阵：
 
 ```bash
 # Claude Code 做架构和审查
-bash expero.sh start architect
-bash expero.sh start critic M0-001
+bash conductor.sh start architect
+bash conductor.sh start critic M0-001
 
 # OpenAI 做实现
-bash expero.sh start builder M0-001 codex
+bash conductor.sh start builder M0-001 codex
 
 # Gemini 做大上下文遗留代码分析（1M token 窗口）
-bash expero.sh start archaeologist legacy-M0-001 gemini
+bash conductor.sh start archaeologist legacy-M0-001 gemini
 ```
 
 ## 成本模型
@@ -222,7 +222,7 @@ bash expero.sh start archaeologist legacy-M0-001 gemini
 | Builder 升 Opus | 15-20x | 高安全要求 |
 | 全 Opus | 70-80x | 协议/金融/医疗 |
 
-## 何时不用 Expero
+## 何时不用 Conductor
 
 - 项目规模 < 5K 行（单 agent 更快）
 - 探索性原型（结构化流程是负担）
@@ -238,7 +238,7 @@ bash expero.sh start archaeologist legacy-M0-001 gemini
 - ❌ Memory 当笔记本用
 - ❌ 里程碑不重启
 - ❌ CLAUDE.md 当教程写
-- ❌ 没有测试就用 Expero
+- ❌ 没有测试就用 Conductor
 - ❌ Critic 修代码
 
 详见 [SPEC.md §9](./SPEC.md)。
@@ -254,10 +254,10 @@ bash expero.sh start archaeologist legacy-M0-001 gemini
 
 ## 开发与测试
 
-`expero.sh` 自带回归测试，修改 CLI 或数据文件（roles/scenarios/schemas）后请先跑一遍：
+`conductor.sh` 自带回归测试，修改 CLI 或数据文件（roles/scenarios/schemas）后请先跑一遍：
 
 ```bash
-bash test-expero.sh
+bash test-conductor.sh
 ```
 
 覆盖范围：help 命令、8 scenario × 24 (role × tool) 组合、CLAUDE.md 模板占位符、
@@ -267,11 +267,11 @@ status 任务计数、stop signal 检测（文本 + 结构化 JSON）、validate
 
 ## FAQ
 
-**Q: Expero 和 Cursor Composer / Cline Plan Mode 有什么区别？**
+**Q: Conductor 和 Cursor Composer / Cline Plan Mode 有什么区别？**
 A: 前者是单 agent 内的多阶段执行，后者是多 agent 跨会话协作。可组合使用。
 
-**Q: 我不用 Claude Code，能用 Expero 吗？**
-A: 能。Expero 是方法论，只要工具支持读写文件系统就可以。
+**Q: 我不用 Claude Code，能用 Conductor 吗？**
+A: 能。Conductor 是方法论，只要工具支持读写文件系统就可以。
 
 **Q: 只用 Planner + Builder 两个 Role 可以吗？**
 A: 可以，但强烈建议加 Critic。没有审查的代码等于没有审查的代码。
@@ -285,7 +285,7 @@ CC0 — 可自由复制、修改、商用。
 
 ## 致谢
 
-Expero 的设计基于以下实践经验：
+Conductor 的设计基于以下实践经验：
 
 - [mihomo-rust 项目的 Agent Team 实践](https://maxlv.net/blog/porting-mihomo-to-rust-with-claude/)
 - Claude Code 的多 agent 支持
@@ -293,4 +293,4 @@ Expero 的设计基于以下实践经验：
 
 ---
 
-**"通过实践验证"——这是 Expero 的名字，也是它的方法论。**
+**一个人是 Conductor，一个 subagent 是 Conductor，一套 CLI 也是 Conductor——指挥 role 协作、验证产出、守住质量边界，才是这个框架的名字。**

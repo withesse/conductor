@@ -13,7 +13,7 @@ below a declared threshold. Fits the existing gate contract:
 exit-code-first, runs in CI, short human-readable detail on fail.
 
 ```bash
-$ bash expero.sh gate test_coverage
+$ bash conductor.sh gate test_coverage
 Gate: test_coverage
   Threshold: 80%
   Measured:  76.4% (line) in coverage/coverage-summary.json
@@ -26,7 +26,7 @@ Gate: test_coverage
 
 ### Strategy A — "Verifier writes the number"
 
-Verifier role maintains `.expero/docs/ci-status.md` with a line like:
+Verifier role maintains `.conductor/docs/ci-status.md` with a line like:
 
     coverage: 76.4%
 
@@ -35,7 +35,7 @@ the existing `coverage_threshold`.
 
 **Pros**
 - Zero config — just run Verifier, they write the number.
-- Plays into Expero's "state lives in `.expero/docs/`" philosophy.
+- Plays into Conductor's "state lives in `.conductor/docs/`" philosophy.
 - Language-agnostic.
 
 **Cons**
@@ -207,7 +207,7 @@ greenfield-library / new-product projects), add others incrementally.
 
 1. Add `_yaml_get_string` helper (we have `_yaml_get_list`, need scalar).
 2. Add `_gate_test_coverage` + format parser functions.
-3. Extend `_gen_expero_config` with commented coverage fields.
+3. Extend `_gen_conductor_config` with commented coverage fields.
 4. Wire to dispatch + `gate all` + help.
 5. Tests for all 4 formats + pass/fail paths + parse-error behavior.
 6. Update SPEC §4.2 status matrix to 5/5 (🟢 complete).

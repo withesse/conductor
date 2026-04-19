@@ -11,48 +11,48 @@
 
 ## Two directions, each valuable independently
 
-### Direction 1 — Expero **as MCP server**
+### Direction 1 — Conductor **as MCP server**
 
-Expose `.expero/docs/` as MCP resources so that Claude Code (or any
-MCP-aware client) can query project state without knowing Expero's
+Expose `.conductor/docs/` as MCP resources so that Claude Code (or any
+MCP-aware client) can query project state without knowing Conductor's
 file layout.
 
 ```
 Client query:
   mcp.list_resources()  → [
-    "expero://adr/",           # list of ADRs
-    "expero://roadmap",        # current roadmap.md
-    "expero://signals/",       # unresolved signals
-    "expero://specs/",         # specs
-    "expero://review/<task>",  # reviews by task-id
+    "conductor://adr/",           # list of ADRs
+    "conductor://roadmap",        # current roadmap.md
+    "conductor://signals/",       # unresolved signals
+    "conductor://specs/",         # specs
+    "conductor://review/<task>",  # reviews by task-id
     ...
   ]
 
-  mcp.read_resource("expero://adr/ADR-0001")
+  mcp.read_resource("conductor://adr/ADR-0001")
   → Returns ADR markdown content
 ```
 
 **Why useful**
 - Claude Code skills/subagents could load ADRs via MCP instead of
-  hard-coded paths → looser coupling to Expero's directory layout.
-- External tools (dashboards, CI, report generators) can read Expero
-  state without shelling out to `bash expero.sh status`.
-- Cross-project queries (read from two Expero projects simultaneously)
+  hard-coded paths → looser coupling to Conductor's directory layout.
+- External tools (dashboards, CI, report generators) can read Conductor
+  state without shelling out to `bash conductor.sh status`.
+- Cross-project queries (read from two Conductor projects simultaneously)
   become natural.
 
 **Implementation shape**
 - Python (FastMCP) or Node (MCP SDK) — neither is already a dep. Pick
-  Python since most Expero users have it available; FastMCP's
+  Python since most Conductor users have it available; FastMCP's
   decorator style stays terse.
-- `scripts/expero-mcp-server.py` — ~150 LOC. Reads `.expero/docs/`
+- `scripts/conductor-mcp-server.py` — ~150 LOC. Reads `.conductor/docs/`
   and emits resources.
 - No new dependency *at CLI level* — the MCP server is opt-in, runs
   only when user enables it in `.claude/settings.json`.
 - Frontmatter sync: server regenerated with each git commit (or on
-  first request). State in `.expero/docs/` is source of truth; the
+  first request). State in `.conductor/docs/` is source of truth; the
   server is a read-only view.
 
-### Direction 2 — Expero **as MCP client**
+### Direction 2 — Conductor **as MCP client**
 
 Roles can declare MCP URIs in their "reads" list (SPEC §2.1), so a
 role starts its session with external state already in context.
@@ -60,17 +60,17 @@ role starts its session with external state already in context.
 ```yaml
 # roles/_meta.json addition (proposal)
 "builder/reads": [
-  "file:.expero/docs/specs/__TASK_ID__.md",
-  "file:.expero/docs/adr/",
+  "file:.conductor/docs/specs/__TASK_ID__.md",
+  "file:.conductor/docs/adr/",
   "mcp:github://issues?task_id=__TASK_ID__",   # external: GH issue
   "mcp:linear://ticket/__TASK_ID__"
 ]
 ```
 
 **Why useful**
-- Decouples Expero from "state lives in files". Team using Linear
+- Decouples Conductor from "state lives in files". Team using Linear
   for tickets → builder reads the Linear issue, not a copy in
-  `.expero/docs/`.
+  `.conductor/docs/`.
 - Multi-source: builder can cross-reference the spec (file) with
   the issue thread (MCP) in the same session.
 - Aligns with the SPEC's §2.1 "reads list" being flexible.
@@ -94,7 +94,7 @@ role starts its session with external state already in context.
 1. **Less-invasive**: doesn't change role prompts, doesn't change
    CLI semantics. It's a sidecar process Claude Code can opt into.
 2. **Immediate value**: Claude Code users get cross-project queries
-   and structured access to Expero state.
+   and structured access to Conductor state.
 3. **Testable**: MCP server's behavior is deterministic (file → MCP
    response), easy to regression-test.
 
@@ -105,7 +105,7 @@ role starts its session with external state already in context.
 2. **Multi-tool headache**: Codex/Gemini MCP support varies; CLI
    fallback adds branching. Direction 1 is Claude-Code-native only,
    simpler story.
-3. **Role prompts already reference `.expero/docs/` by path** — no
+3. **Role prompts already reference `.conductor/docs/` by path** — no
    user pain yet. Client-mode MCP is an optimization, not a gap.
 
 ---
@@ -114,39 +114,39 @@ role starts its session with external state already in context.
 
 ### Resource URI scheme
 
-`expero://<category>/<identifier>`
+`conductor://<category>/<identifier>`
 
 | URI | Returns |
 |---|---|
-| `expero://config` | `.expero/config.yaml` (scenario, version, model tiers) |
-| `expero://roadmap` | `.expero/docs/roadmap.md` |
-| `expero://ci-status` | `.expero/docs/ci-status.md` |
-| `expero://adr/` | List of ADR IDs + titles |
-| `expero://adr/ADR-NNNN` | Full ADR markdown |
-| `expero://specs/` | List of spec files |
-| `expero://specs/<task-id>` | Spec markdown |
-| `expero://specs/<task-id>/test-plan` | Test plan markdown |
-| `expero://review/<task-id>` | Review markdown + verdict (extracted) |
-| `expero://security/summary` | Security summary parsed for CVSS counts |
-| `expero://security/<module>` | Per-module security report |
-| `expero://signals/` | List of unresolved signals |
-| `expero://signals/<id>-<type>` | Single signal JSON |
-| `expero://signals/resolved/` | Archived signals |
-| `expero://scenarios/` | List of scenario names + descriptions |
-| `expero://roles/` | List of role names + tier + short description |
+| `conductor://config` | `.conductor/config.yaml` (scenario, version, model tiers) |
+| `conductor://roadmap` | `.conductor/docs/roadmap.md` |
+| `conductor://ci-status` | `.conductor/docs/ci-status.md` |
+| `conductor://adr/` | List of ADR IDs + titles |
+| `conductor://adr/ADR-NNNN` | Full ADR markdown |
+| `conductor://specs/` | List of spec files |
+| `conductor://specs/<task-id>` | Spec markdown |
+| `conductor://specs/<task-id>/test-plan` | Test plan markdown |
+| `conductor://review/<task-id>` | Review markdown + verdict (extracted) |
+| `conductor://security/summary` | Security summary parsed for CVSS counts |
+| `conductor://security/<module>` | Per-module security report |
+| `conductor://signals/` | List of unresolved signals |
+| `conductor://signals/<id>-<type>` | Single signal JSON |
+| `conductor://signals/resolved/` | Archived signals |
+| `conductor://scenarios/` | List of scenario names + descriptions |
+| `conductor://roles/` | List of role names + tier + short description |
 
 ### Tool-style MCP endpoints (beyond resources)
 
 ```
-expero.status()                    → Full status summary (same as CLI)
-expero.validate(path?)             → Run validate gate
-expero.gate(name, task_id?)        → Run any gate, return verdict + output
-expero.resolve_signal(id, type,    → Mark signal resolved + archive
+conductor.status()                    → Full status summary (same as CLI)
+conductor.validate(path?)             → Run validate gate
+conductor.gate(name, task_id?)        → Run any gate, return verdict + output
+conductor.resolve_signal(id, type,    → Mark signal resolved + archive
                     resolved_by,
                     resolved_at)
 ```
 
-These let an MCP client *mutate* Expero state, not just read it.
+These let an MCP client *mutate* Conductor state, not just read it.
 Gate at least one `write` endpoint behind a `--mutable` server flag
 so read-only dashboards can't accidentally close signals.
 
@@ -154,8 +154,8 @@ so read-only dashboards can't accidentally close signals.
 
 ```
 scripts/
-  expero-mcp-server.py        # new, ~150 LOC
-  expero-mcp-server.md        # how to register in .claude/settings.json
+  conductor-mcp-server.py        # new, ~150 LOC
+  conductor-mcp-server.md        # how to register in .claude/settings.json
 .claude/
   settings.json.example       # shows the plugin entry for the server
 ```
@@ -167,15 +167,15 @@ User adds to `.claude/settings.json`:
 ```json
 {
   "mcpServers": {
-    "expero": {
+    "conductor": {
       "command": "python",
-      "args": ["scripts/expero-mcp-server.py", "--project", "."]
+      "args": ["scripts/conductor-mcp-server.py", "--project", "."]
     }
   }
 }
 ```
 
-After restart, Claude Code sees `expero://*` resources and can pass
+After restart, Claude Code sees `conductor://*` resources and can pass
 them to subagents.
 
 ### Dependencies
@@ -206,7 +206,7 @@ them to subagents.
    - Deferred. Single-project server is enough for v1.3. Cross-project
      can run two server instances with different URIs.
 
-4. **Security**: MCP server can read `.expero/signals/*.json`
+4. **Security**: MCP server can read `.conductor/signals/*.json`
    including free-text `description`. Is that a PII / secrets risk?
    - No change from current state — same content is already in the
      filesystem. Server is a *read* of existing content, not a
@@ -221,7 +221,7 @@ them to subagents.
 
 ## Non-goals for v1.3
 
-- Not implementing Direction 2 (Expero as MCP client). Defer to v1.4.
+- Not implementing Direction 2 (Conductor as MCP client). Defer to v1.4.
 - Not integrating external MCP servers (GitHub issues, Linear) into
   role prompts. Defer to v1.4 with Direction 2.
 - Not building a Node/TypeScript alternative server (FastMCP only).
@@ -232,7 +232,7 @@ them to subagents.
 
 ## Implementation estimate
 
-- `scripts/expero-mcp-server.py`: ~150 LOC
+- `scripts/conductor-mcp-server.py`: ~150 LOC
 - Resource handlers for 10 URI categories: ~15 LOC each × 10 = ~150 LOC
 - Tool endpoints (status, validate, gate, resolve_signal): ~100 LOC
 - Tests (Python pytest — new test file): ~100 LOC
@@ -244,7 +244,7 @@ them to subagents.
 Larger than previous additions because it introduces a new runtime
 (Python) and a new protocol surface. Worth it — MCP is the industry
 pattern for LLM-system integration in 2026 and this is the cleanest
-way to make Expero first-class in that ecosystem.
+way to make Conductor first-class in that ecosystem.
 
 ---
 
@@ -261,9 +261,9 @@ Once these three ACKs, implementation is straightforward.
 
 ## Non-goals (to head off scope creep)
 
-- **A web UI for Expero state** — MCP gives structured access; UIs
+- **A web UI for Conductor state** — MCP gives structured access; UIs
   can be built on top, but not by us.
-- **MCP as replacement for `.expero/docs/`** — file system remains
+- **MCP as replacement for `.conductor/docs/`** — file system remains
   the source of truth; MCP is a view.
 - **Bidirectional sync with Linear/GitHub** — way out of v1.x scope.
   Read-only integration via Direction 2 is the line.

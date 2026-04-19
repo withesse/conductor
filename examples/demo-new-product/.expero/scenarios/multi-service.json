@@ -1,8 +1,0 @@
-{
-  "name": "multi-service",
-  "description": "Multi-service integration",
-  "active_roles": ["planner", "architect", "builder", "verifier", "critic"],
-  "extension_roles": [],
-  "extra_dirs": [".expero/docs/contracts"],
-  "roadmap_template": "roadmaps/multi-service.md"
-}

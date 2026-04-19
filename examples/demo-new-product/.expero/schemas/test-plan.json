@@ -1,9 +1,0 @@
-{
-  "name": "test-plan",
-  "description": "Test plan (Verifier output). Must contain a test-case table; ID column is the anchor we grep.",
-  "applies_to": ".expero/docs/specs/*-test-plan.md",
-  "required_patterns": [
-    "^# ",
-    "[|][[:space:]]*ID[[:space:]]*[|]"
-  ]
-}

@@ -1,15 +1,15 @@
 #!/bin/bash
-# regen-subagents.sh — regenerate .claude/agents/expero-<role>.md from
+# regen-subagents.sh — regenerate .claude/agents/conductor-<role>.md from
 # roles/<role>.md + roles/_base.md + roles/_meta.json.
 #
 # Subagents are Claude Code's native parallel-dispatch primitive: the
-# main agent calls Task(subagent=expero-builder, prompt="ship M0-001")
+# main agent calls Task(subagent=conductor-builder, prompt="ship M0-001")
 # and the subagent runs in its own context window with the role's
 # system prompt and tool whitelist.
 #
 # Source of truth is roles/*.md (same as CLI `start` prompts and
 # Skills plugin). Run this script whenever roles/_base.md, roles/*.md,
-# or roles/_meta.json changes. Test-expero.sh verifies
+# or roles/_meta.json changes. Test-conductor.sh verifies
 # .claude/agents/*.md stays byte-identical to a fresh regen.
 #
 # Usage:
@@ -27,7 +27,7 @@ if [ ! -d "$ROLES_DIR" ]; then
   exit 1
 fi
 
-# Model mapping (duplicated from expero.sh MODEL_CLAUDE_* constants so
+# Model mapping (duplicated from conductor.sh MODEL_CLAUDE_* constants so
 # this script stays standalone — see _meta.json for tier-per-role).
 _model_for_tier() {
   case "$1" in
@@ -79,7 +79,7 @@ _title_case() {
 }
 
 # Subagents get a fixed system prompt — can't interpolate per-invocation
-# like `expero.sh start` does. __TASK__ is resolved to "as specified by
+# like `conductor.sh start` does. __TASK__ is resolved to "as specified by
 # the invoker" text since the Task tool's prompt argument carries the
 # actual task info. __TASK_ID__ stays a literal placeholder.
 _subagent_task_text() {
@@ -95,7 +95,7 @@ _render_subagent() {
   local role_title desc tier model tools task_text
   role_title=$(_title_case "$role")
   desc=$(_meta_get "$role" long)
-  [ -z "$desc" ] && desc="Expero Agents $role_title role"
+  [ -z "$desc" ] && desc="Conductor $role_title role"
   tier=$(_meta_get "$role" tier)
   model=$(_model_for_tier "$tier")
   tools=$(_tools_for_role "$role")
@@ -105,7 +105,7 @@ _render_subagent() {
 
   {
     printf -- '---\n'
-    printf 'name: expero-%s\n' "$role"
+    printf 'name: conductor-%s\n' "$role"
     printf 'description: %s\n' "$desc"
     printf 'model: %s\n' "$model"
     printf 'tools: %s\n' "$tools"
@@ -124,18 +124,18 @@ _render_subagent() {
 for role_md in "$ROLES_DIR"/*.md; do
   role=$(basename -- "$role_md" .md)
   [ "$role" = "_base" ] && continue
-  out="$OUT_DIR/agents/expero-$role.md"
+  out="$OUT_DIR/agents/conductor-$role.md"
   _render_subagent "$role" "$out"
   echo "  wrote $out"
 done
 
-# Non-role subagents live at subagents/expero-<name>.md and are copied
-# as-is (not templated). Use this for meta-agents (like expero-orchestrator)
+# Non-role subagents live at subagents/conductor-<name>.md and are copied
+# as-is (not templated). Use this for meta-agents (like conductor-orchestrator)
 # whose prompts don't fit the role template — their frontmatter tools,
 # system-prompt structure, and body are hand-curated.
 SUBAGENTS_SRC="$REPO_ROOT/subagents"
 if [ -d "$SUBAGENTS_SRC" ]; then
-  for src in "$SUBAGENTS_SRC"/expero-*.md; do
+  for src in "$SUBAGENTS_SRC"/conductor-*.md; do
     [ -e "$src" ] || continue
     dst="$OUT_DIR/agents/$(basename -- "$src")"
     mkdir -p "$(dirname "$dst")"

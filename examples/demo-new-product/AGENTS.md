@@ -6,11 +6,11 @@ manually at session start.
 
 ## Mandatory First Steps
 1. Read CLAUDE.md
-2. Read .expero/docs/roadmap.md
-3. Read relevant .expero/docs/adr/ (if exists)
+2. Read .conductor/docs/roadmap.md
+3. Read relevant .conductor/docs/adr/ (if exists)
 
 ## Shared State Protocol
-All state must be written to .expero/docs/. Do not rely on context for
+All state must be written to .conductor/docs/. Do not rely on context for
 persistence. Task status values: todo / in-progress / completed / blocked.
 Complete tasks by updating roadmap.md task status to "completed".
 
@@ -52,9 +52,9 @@ Valid signals (UPPERCASE with underscores):
 - NEEDS_SECURITY_REVIEW     — security-relevant change requires Sentinel
 - BLOCKED_BY_<task-id>      — cannot proceed until another task completes
 
-### Form B: Structured JSON in .expero/signals/ (preferred for rich context)
+### Form B: Structured JSON in .conductor/signals/ (preferred for rich context)
 
-Create `.expero/signals/<task-id>-<TYPE>.json`:
+Create `.conductor/signals/<task-id>-<TYPE>.json`:
 
     {
       "id":          "M0-001",
@@ -67,14 +67,14 @@ Create `.expero/signals/<task-id>-<TYPE>.json`:
       "resolved_at": null
     }
 
-Full schema in `.expero/signals/README.md`. Structured signals survive
+Full schema in `.conductor/signals/README.md`. Structured signals survive
 roadmap edits, carry a full description and timestamp, and are counted
 separately in `status`.
 
 ### Detection + resolution
 
-    bash expero.sh status                    # groups both forms
-    bash expero.sh restart                   # warns at milestone boundary
+    bash conductor.sh status                    # groups both forms
+    bash conductor.sh restart                   # warns at milestone boundary
 
 Resolution:
 - Text: replace `NEEDS_ARCH_REVIEW` with `ARCH_RESOLVED` (etc.) in the row.

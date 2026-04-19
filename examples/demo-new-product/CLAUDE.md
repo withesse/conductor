@@ -1,6 +1,6 @@
 # demo-new-product
 
-Expero Agents project (scenario: **new-product**).
+Conductor project (scenario: **new-product**).
 
 ## Roles Enabled
 - planner, architect, builder, verifier, critic
@@ -17,7 +17,7 @@ Expero Agents project (scenario: **new-product**).
 ## Architecture Rules
 
 <!-- Summarize the load-bearing ADRs here (max 5-7 bullets). -->
-<!-- Full rationale lives in `.expero/docs/adr/`. This section is for quick agent recall. -->
+<!-- Full rationale lives in `.conductor/docs/adr/`. This section is for quick agent recall. -->
 
 - _No ADRs accepted yet. Architect will populate this after M0._
 
@@ -39,13 +39,13 @@ Expero Agents project (scenario: **new-product**).
 
 ## Key ADRs
 
-See `.expero/docs/adr/`. ADRs load in numeric order; Superseded entries stop applying.
+See `.conductor/docs/adr/`. ADRs load in numeric order; Superseded entries stop applying.
 
-## Expero Protocol
+## Conductor Protocol
 
-All framework state lives in `.expero/docs/`. Never rely on conversation context for persistence.
+All framework state lives in `.conductor/docs/`. Never rely on conversation context for persistence.
 Status values: `todo` / `in-progress` / `completed` / `blocked`.
 
 Stop signals — pick one form (both is fine):
-- **Text**: in the Notes column of `.expero/docs/roadmap.md`: `NEEDS_ARCH_REVIEW`, `NEEDS_SPEC_CLARIFICATION`, `NEEDS_SECURITY_REVIEW`, `BLOCKED_BY_<task-id>`
-- **Structured**: JSON at `.expero/signals/<task-id>-<TYPE>.json` (schema in `.expero/signals/README.md`; gets counted separately by `bash expero.sh status`).
+- **Text**: in the Notes column of `.conductor/docs/roadmap.md`: `NEEDS_ARCH_REVIEW`, `NEEDS_SPEC_CLARIFICATION`, `NEEDS_SECURITY_REVIEW`, `BLOCKED_BY_<task-id>`
+- **Structured**: JSON at `.conductor/signals/<task-id>-<TYPE>.json` (schema in `.conductor/signals/README.md`; gets counted separately by `bash conductor.sh status`).
