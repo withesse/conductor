@@ -1,22 +1,48 @@
 # Roadmap (Java Backend — enterprise multi-module)
 
-> Template for an enterprise Spring Boot stack: Java 17+, multi-module
-> Maven, MyBatis-Plus, multi-tenant RBAC, modular business domains.
-> Tailor M1 tasks to your specific business domain; M0 should stay
-> close to this template.
+> Template for an enterprise Spring Boot stack: multi-module Maven,
+> MyBatis-Plus, multi-tenant RBAC, modular business domains. Tailor
+> M1 tasks to your specific business domain; M0 should stay close to
+> this template.
+
+## Recommended stack (snapshot, update at init time)
+
+Use **latest LTS** for Java and **latest stable GA** for every
+dependency when starting a project. As of this template version:
+
+| Concern | Choice | Version anchor |
+|---|---|---|
+| JDK | Temurin / Eclipse Adoptium | **Java 25 LTS** (or next LTS, never non-LTS) |
+| Build | Maven | **3.9+** (Maven 4 when GA) |
+| Framework | Spring Boot | **latest 3.x GA** (Spring Boot 4 when GA stable) |
+| Security | Spring Security | bundled with Spring Boot |
+| Persistence | MyBatis-Plus | **3.5+** |
+| Migrations | Flyway | **10.x+** |
+| Cache | Redis (Lettuce via Spring Data Redis) | Redis **7.4+** |
+| Database | MySQL | **8.4 LTS** (or PostgreSQL 17+ if chosen) |
+| JSON | Jackson | bundled with Spring Boot |
+| Test | JUnit 5 + Testcontainers | latest |
+| Coverage | Jacoco | **0.8.12+** |
+| Format | Spotless Maven plugin | latest, Google-Java-Format profile |
+| Observability | Micrometer + Prometheus | bundled |
+
+Record the *exact* versions you initialize with in
+`.conductor/docs/adr/ADR-0001-tech-stack.md` so agents working on
+different tasks stay consistent. Bump deliberately, not ambiently.
 
 ## M0 — Skeleton (goal: empty app boots, CI green)
 
 | ID | Task | Status | Owner | Depends | Commit |
 |----|------|--------|-------|---------|--------|
-| M0-001 | Maven multi-module scaffold (bom / infra / system / main-app) | todo | builder | — | |
-| M0-002 | Spring Boot 3 / Java 17 boot class + application.yml | todo | builder | M0-001 | |
-| M0-003 | MySQL connection via MyBatis-Plus; Flyway migration v1 | todo | builder | M0-002 | |
+| M0-001 | Maven multi-module scaffold (bom / infra / system / main-app) with Java latest-LTS toolchain | todo | builder | — | |
+| M0-002 | Spring Boot boot class + `application.yml` (profiles: dev / test / prod) | todo | builder | M0-001 | |
+| M0-003 | Database connection via MyBatis-Plus; Flyway baseline migration v1 | todo | builder | M0-002 | |
 | M0-004 | Redis connection (Lettuce) + health indicator | todo | builder | M0-002 | |
 | M0-005 | Global exception handler + unified `CommonResult<T>` DTO | todo | builder | M0-002 | |
-| M0-006 | Logback + request/trace-id filter | todo | builder | M0-002 | |
-| M0-007 | Maven CI: verify + jacoco + spotless | todo | builder | M0-005 | |
+| M0-006 | Logback + request/trace-id filter (one log line per request) | todo | builder | M0-002 | |
+| M0-007 | Maven CI: `verify` + Jacoco report + Spotless check | todo | builder | M0-005 | |
 | M0-008 | Smoke test: `mvn spring-boot:run` + `/actuator/health` returns UP | todo | verifier | M0-007 | |
+| M0-009 | ADR-0001 records exact stack versions (Java / Spring Boot / Maven / deps) | todo | architect | M0-007 | |
 
 **M0 Exit Criteria**
 - [ ] `mvn -B -q clean verify` passes
@@ -33,7 +59,7 @@
 |----|------|--------|-------|---------|--------|
 | M1-001 | User / Role / Permission entities + tenant_id column | todo | architect | M0 done | |
 | M1-002 | JWT token issuer + parser (HS256 rotate-able secret) | todo | builder | M1-001 | |
-| M1-003 | Spring Security 6 config (stateless, JWT filter) | todo | builder | M1-002 | |
+| M1-003 | Spring Security config (stateless, JWT filter) | todo | builder | M1-002 | |
 | M1-004 | Login endpoint `POST /auth/login` + refresh | todo | builder | M1-003 | |
 | M1-005 | `@PreAuthorize` method security with permission strings | todo | builder | M1-003 | |
 | M1-006 | Tenant context ThreadLocal + MyBatis-Plus interceptor (WHERE tenant_id = ?) | todo | builder | M1-001 | |
