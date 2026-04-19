@@ -1034,6 +1034,44 @@ assert_match   "  summary reports failure count" \
     "1 of 5 gates failed"
 
 echo ""
+echo "== T26o-d: gate pr composite =="
+bash "$EXPERO" init "$TMPDIR/gate-pr" new-product >/dev/null
+# pr requires task-id
+assert_nonzero "gate pr without task-id fails" \
+    "cd '$TMPDIR/gate-pr' && bash expero.sh gate pr"
+# pr without review → fails (adr_compliance branch)
+assert_nonzero "gate pr fails when review missing" \
+    "cd '$TMPDIR/gate-pr' && bash expero.sh gate pr M0-001"
+# pr with approved review + clean artifacts + no ci_commands → pass
+cat > "$TMPDIR/gate-pr/.expero/docs/review/M0-001.md" << 'RV'
+# Review: M0-001
+## Verdict
+APPROVED
+## ADR Compliance
+## Issues
+RV
+assert_zero "gate pr passes when all 3 components pass" \
+    "cd '$TMPDIR/gate-pr' && bash expero.sh gate pr M0-001"
+assert_match "  pr success says '3 gates'" \
+    "cd '$TMPDIR/gate-pr' && bash expero.sh gate pr M0-001" \
+    "PR ready: all 3 gates passed"
+# pr does NOT run security or coverage — even if they'd fail, pr should
+# still pass so long as the 3 core gates pass. Prove it by adding a
+# security summary with CRITICAL findings:
+mkdir -p "$TMPDIR/gate-pr/.expero/docs/security"
+cat > "$TMPDIR/gate-pr/.expero/docs/security/summary.md" << 'SEC'
+# Security Summary
+| Severity | Count |
+|----------|-------|
+| CRITICAL | 5 |
+SEC
+assert_zero "gate pr ignores security_clean (pr scope is narrower)" \
+    "cd '$TMPDIR/gate-pr' && bash expero.sh gate pr M0-001"
+# But gate all should now fail
+assert_nonzero "gate all still catches the CRITICAL" \
+    "cd '$TMPDIR/gate-pr' && bash expero.sh gate all M0-001"
+
+echo ""
 echo "== T26q: gate unknown name fails + help lists gates =="
 assert_nonzero "gate unknown_gate exits non-zero" \
     "cd '$TMPDIR/gate-all' && bash expero.sh gate unknown_gate"
@@ -1043,6 +1081,7 @@ assert_match "help lists adr_compliance"    "bash '$EXPERO' help" "adr_complianc
 assert_match "help lists security_clean"    "bash '$EXPERO' help" "security_clean"
 assert_match "help lists ci_passes"         "bash '$EXPERO' help" "ci_passes"
 assert_match "help lists test_coverage"     "bash '$EXPERO' help" "test_coverage"
+assert_match "help lists pr composite gate" "bash '$EXPERO' help" "^  pr <task>"
 assert_match "help lists all meta-gate"     "bash '$EXPERO' help" "^  all "
 
 echo ""
@@ -1160,6 +1199,35 @@ assert_match "  expero-architect tools OMIT Bash" \
     "cat '$AGENTS_DIR/expero-architect.md'" "^tools: Read, Write, Edit, Grep, Glob\$"
 assert_match "  expero-builder tools INCLUDE Bash" \
     "cat '$AGENTS_DIR/expero-builder.md'" "^tools: Read, Write, Edit, Grep, Glob, Bash\$"
+
+echo ""
+echo "== T26t-b: orchestrator source lives at subagents/ =="
+# After the source-pattern refactor: subagents/expero-orchestrator.md is
+# the hand-curated source; regen-subagents.sh passes it through to
+# .claude/agents/ unchanged. Guard that both exist + bytes match.
+SRC_ORCH="$SCRIPT_DIR/subagents/expero-orchestrator.md"
+DST_ORCH="$SCRIPT_DIR/.claude/agents/expero-orchestrator.md"
+assert_zero "subagents/expero-orchestrator.md source exists" "[ -f '$SRC_ORCH' ]"
+assert_zero "  .claude/agents/expero-orchestrator.md generated exists" "[ -f '$DST_ORCH' ]"
+if cmp -s "$SRC_ORCH" "$DST_ORCH"; then
+  pass "  orchestrator source ↔ .claude/agents/ byte-identical"
+else
+  fail "  orchestrator source ↔ .claude/agents/ byte-identical" "(run regen-subagents)"
+fi
+
+echo ""
+echo "== T26t-c: restart includes gate snapshot =="
+bash "$EXPERO" init "$TMPDIR/restart-snap" new-product >/dev/null
+snap_out=$(cd "$TMPDIR/restart-snap" && bash expero.sh restart 2>&1)
+echo "$snap_out" | grep -qE "Gate snapshot" \
+    && pass "restart output includes 'Gate snapshot' section" \
+    || fail "restart output includes 'Gate snapshot' section" "(missing)"
+echo "$snap_out" | grep -qE "gates passed|gates failed" \
+    && pass "restart shows gate all tally" \
+    || fail "restart shows gate all tally" "(missing)"
+echo "$snap_out" | grep -qE "Orchestrated" \
+    && pass "restart next-steps offers orchestrator option" \
+    || fail "restart next-steps offers orchestrator option" "(missing)"
 
 echo ""
 echo "== T26u-b: orchestrator subagent (Phase 2) =="

@@ -128,3 +128,18 @@ for role_md in "$ROLES_DIR"/*.md; do
   _render_subagent "$role" "$out"
   echo "  wrote $out"
 done
+
+# Non-role subagents live at subagents/expero-<name>.md and are copied
+# as-is (not templated). Use this for meta-agents (like expero-orchestrator)
+# whose prompts don't fit the role template — their frontmatter tools,
+# system-prompt structure, and body are hand-curated.
+SUBAGENTS_SRC="$REPO_ROOT/subagents"
+if [ -d "$SUBAGENTS_SRC" ]; then
+  for src in "$SUBAGENTS_SRC"/expero-*.md; do
+    [ -e "$src" ] || continue
+    dst="$OUT_DIR/agents/$(basename -- "$src")"
+    mkdir -p "$(dirname "$dst")"
+    cp "$src" "$dst"
+    echo "  wrote $dst (passthrough)"
+  done
+fi

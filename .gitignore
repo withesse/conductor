@@ -15,3 +15,4 @@ Thumbs.db
 # Expero test projects (projects created by `expero.sh init` for testing)
 /test-*/
 /tmp-*/
+.claude/settings.local.json

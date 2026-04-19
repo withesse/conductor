@@ -6,6 +6,30 @@ and the project adheres to Semantic Versioning.
 
 ## [Unreleased]
 
+### Added (this round)
+- `expero.sh gate pr <task-id>` — sixth gate, a composite for pre-PR
+  checks: `artifacts_valid + adr_compliance + ci_passes`. Narrower
+  than `gate all` — omits `security_clean` (milestone-level) and
+  `test_coverage` (per-task can be slow). Use `all` at milestone
+  boundary, `pr` right before opening a PR.
+- `restart` now runs a read-only `Gate snapshot` (`gate all` without
+  task-id) and shows pass/fail per gate. Advisory — restart still
+  succeeds even if gates fail, but surfaces "what's left before
+  closing this milestone".
+- `restart` Next steps presents two options: (a) orchestrated via
+  Claude Code + `expero-orchestrator` subagent ("one turn ships the
+  cycle"), or (b) manual per-role CLI dispatch.
+- `subagents/expero-orchestrator.md` — orchestrator source moved from
+  `.claude/agents/`, applying the same source-of-truth pattern used
+  for roles/scenarios/schemas. `regen-subagents.sh` now iterates
+  `subagents/*.md` too and copies them passthrough to `.claude/agents/`.
+  Drift-guard test verifies byte-identical source → generated.
+- `docs/DESIGN-mcp-integration.md` — v1.3 design doc for MCP support.
+  Two directions analyzed (Expero as MCP server exposing `.expero/docs/`
+  as resources; Expero as MCP client reading external state).
+  Recommends "server first" for v1.3, defers client to v1.4+. Locks
+  URI scheme, resource categories, ~620 LOC / 5-6h impl estimate.
+
 ### Changed
 - Role metadata (tier + short / long description) consolidated into
   `roles/_meta.json`. Previously the same 8 roles were described in

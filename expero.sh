@@ -616,10 +616,29 @@ cmd_restart() {
   fi
 
   ok "Document check passed"
+
+  # Gate snapshot: run the non-task gates in read-only mode to surface
+  # structural issues at the milestone boundary. This is advisory —
+  # restart still succeeds even if gates fail, so Conductor can use
+  # restart to see "what's left to fix before closing this milestone".
+  echo ""
+  echo "Gate snapshot (read-only, no task-id):"
+  local gate_out
+  gate_out=$(cmd_gate all 2>&1 || true)
+  # Summarize: "Gate: X" lines + "✓ PASS" / "✗ FAIL" lines + final tally.
+  # ANSI color codes are in the output; match on the text after them.
+  echo "$gate_out" | grep -E "Gate:|PASS|FAIL|gates passed|gates failed" | sed 's/^/  /' | head -30
+
   echo ""
   echo "Next steps:"
   echo "  1. Close all agent terminals"
-  echo "  2. Start new terminals for next milestone:"
+  echo "  2. Start the next milestone. Options:"
+  echo ""
+  echo "     a) Orchestrated (Claude Code, one turn ships the whole cycle):"
+  echo "        open Claude Code in this project and ask the"
+  echo "        expero-orchestrator subagent to 'continue to next milestone'"
+  echo ""
+  echo "     b) Manual dispatch (CLI, one terminal per role):"
 
   # Suggest start commands for the scenario's active_roles. Falls back
   # to a generic hint when we can't read the scenario (e.g. corrupted
@@ -631,12 +650,12 @@ cmd_restart() {
     while IFS= read -r r; do
       [ -z "$r" ] && continue
       case "$r" in
-        critic|builder|verifier) echo "     bash expero.sh start $r <task-id>" ;;
-        *)                       echo "     bash expero.sh start $r" ;;
+        critic|builder|verifier) echo "        bash expero.sh start $r <task-id>" ;;
+        *)                       echo "        bash expero.sh start $r" ;;
       esac
     done < <(_active_roles_for_scenario "$current_scen")
   else
-    echo "     bash expero.sh start <role> [task-id]"
+    echo "        bash expero.sh start <role> [task-id]"
   fi
 }
 
@@ -778,8 +797,11 @@ cmd_gate() {
     all)
       _gate_all "$task_id"
       ;;
+    pr)
+      _gate_pr "$task_id"
+      ;;
     *)
-      err "Unknown gate: '$gate_name' (available: artifacts_valid, adr_compliance, security_clean, ci_passes, test_coverage, all)"
+      err "Unknown gate: '$gate_name' (available: artifacts_valid, adr_compliance, security_clean, ci_passes, test_coverage, all, pr)"
       exit 1
       ;;
   esac
@@ -858,6 +880,54 @@ _gate_all() {
     return 0
   fi
   err "$failed of $total gates failed"
+  exit 1
+}
+
+# Composite gate: "ready to open a PR for this task". Narrower than
+# `all` — intentionally omits security_clean (milestone-level, not
+# per-task) and test_coverage (may be slow per-task). Scope:
+#   - artifacts_valid  (schema conformance for task docs)
+#   - adr_compliance   (Critic reviewed, verdict APPROVED)
+#   - ci_passes        (tests + lint green)
+# Use `gate all` at milestone boundary; use `gate pr <task>` before
+# opening a PR for a single task.
+_gate_pr() {
+  local task_id=$1
+  if [ -z "$task_id" ]; then
+    err "Gate 'pr' requires a task-id (e.g. 'gate pr M0-001')"
+    exit 1
+  fi
+  local passed=0 failed=0
+  info "Running PR-readiness gates for task: $task_id"
+  echo ""
+
+  if _gate_run "artifacts_valid" "" _gate_artifacts_valid; then
+    passed=$((passed + 1))
+  else
+    failed=$((failed + 1))
+  fi
+  echo ""
+
+  if _gate_run "adr_compliance" "$task_id" _gate_adr_compliance "$task_id"; then
+    passed=$((passed + 1))
+  else
+    failed=$((failed + 1))
+  fi
+  echo ""
+
+  if _gate_run "ci_passes" "" _gate_ci_passes; then
+    passed=$((passed + 1))
+  else
+    failed=$((failed + 1))
+  fi
+  echo ""
+
+  local total=$((passed + failed))
+  if [ "$failed" -eq 0 ]; then
+    ok "PR ready: all $total gates passed"
+    return 0
+  fi
+  err "$failed of $total PR gates failed"
   exit 1
 }
 
@@ -1921,6 +1991,7 @@ cmd_help() {
   echo "  ci_passes                 Every command under ci_commands: exits 0"
   echo "  test_coverage             Measured coverage ≥ coverage_threshold"
   echo "  all [task]                Meta-gate: runs all applicable above"
+  echo "  pr <task>                 Pre-PR subset: artifacts_valid + adr_compliance + ci_passes"
   echo ""
 
   # Scenarios — dynamic from scenarios/*.json. Adding a scenario file

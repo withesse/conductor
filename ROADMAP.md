@@ -47,7 +47,7 @@
   - Builder → `systematic-debugging`, `test-driven-development`
   - Sentinel → `security-review`
   - Archaeologist → `codebase-to-course`（类似探索型 skill）
-- **MCP 支持**：外部状态源（GitHub issues / Linear / Jira）通过 MCP 服务接入，而非只依赖 `.expero/docs/` 文件。Role 的 `reads` 清单允许包含 MCP resource URI
+- **MCP 支持**：设计 doc 已就绪（见 [docs/DESIGN-mcp-integration.md](./docs/DESIGN-mcp-integration.md)）。方向一"Expero as MCP server"定为 v1.3 实施目标——暴露 `.expero/docs/` 为 MCP 资源，Claude Code 可结构化查询项目状态。方向二"Expero as MCP client"（role `reads` 含 `mcp:` URI）推到 v1.4+。
 
 ---
 
