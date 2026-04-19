@@ -40,7 +40,7 @@ resolve_model() {
   bash -c "source '$CONDUCTOR' >/dev/null 2>&1 && model_for_role '$1' '$2'" 2>/dev/null
 }
 
-SCENARIOS="new-product migration refactor legacy-analysis security-audit tech-docs multi-service greenfield-library"
+SCENARIOS="new-product migration refactor legacy-analysis security-audit tech-docs multi-service greenfield-library new-java-backend"
 
 echo "== T1: help command =="
 assert_zero  "help exits 0"         "bash '$CONDUCTOR' help"
